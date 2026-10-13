@@ -8,7 +8,7 @@ prop lines from The Odds API when ODDS_API_KEY is set. Writes data.json for the 
 Usage:  python build_data.py [--week N] [--out data.json] [--local DIR]
 """
 import warnings; warnings.filterwarnings("ignore")
-import argparse, io, json, os, sys, urllib.request
+import argparse, io, json, os, sys, urllib.request, urllib.error
 from datetime import datetime, timezone
 import pandas as pd
 
@@ -178,7 +178,7 @@ def build(week=None, local_dir=None):
         "season": SEASON, "week": week, "statsThrough": played_through,
         "games": games_out, "league": league, "defense": defense, "injuries": injuries,
         "absences": absences, "players": players,
-        "lines": fetch_lines(wk, players) if os.environ.get("ODDS_API_KEY") else [],
+        **odds_block(wk, players),
     }
 
 
@@ -186,17 +186,40 @@ def build(week=None, local_dir=None):
 TEAM_FULL = {"ARI":"Arizona Cardinals","ATL":"Atlanta Falcons","BAL":"Baltimore Ravens","BUF":"Buffalo Bills","CAR":"Carolina Panthers","CHI":"Chicago Bears","CIN":"Cincinnati Bengals","CLE":"Cleveland Browns","DAL":"Dallas Cowboys","DEN":"Denver Broncos","DET":"Detroit Lions","GB":"Green Bay Packers","HOU":"Houston Texans","IND":"Indianapolis Colts","JAX":"Jacksonville Jaguars","KC":"Kansas City Chiefs","LA":"Los Angeles Rams","LAC":"Los Angeles Chargers","LV":"Las Vegas Raiders","MIA":"Miami Dolphins","MIN":"Minnesota Vikings","NE":"New England Patriots","NO":"New Orleans Saints","NYG":"New York Giants","NYJ":"New York Jets","PHI":"Philadelphia Eagles","PIT":"Pittsburgh Steelers","SEA":"Seattle Seahawks","SF":"San Francisco 49ers","TB":"Tampa Bay Buccaneers","TEN":"Tennessee Titans","WAS":"Washington Commanders"}
 
 
+ODDS_STATUS = {"errors": [], "remaining": None, "used": None, "calls": 0}
+
+
 def _get(url):
-    with urllib.request.urlopen(url, timeout=60) as r:
-        print("odds credits remaining:", r.headers.get("x-requests-remaining"), file=sys.stderr)
-        return json.loads(r.read())
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r:
+            ODDS_STATUS["calls"] += 1
+            ODDS_STATUS["remaining"] = r.headers.get("x-requests-remaining"); ODDS_STATUS["used"] = r.headers.get("x-requests-used")
+            print("odds credits remaining:", ODDS_STATUS["remaining"], file=sys.stderr)
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")[:300]
+        safe = url.split("?")[0]  # never record the key
+        ODDS_STATUS["errors"].append(f"{e.code} {safe}: {body}")
+        print("odds error:", ODDS_STATUS["errors"][-1], file=sys.stderr)
+        return None
+
+
+def odds_block(wk, players):
+    if not os.environ.get("ODDS_API_KEY"):
+        return {"lines": [], "odds": {"status": "no key"}}
+    try:
+        lines = fetch_lines(wk, players)
+        status = "ok" if lines else ("error" if ODDS_STATUS["errors"] else "no lines yet")
+    except Exception as e:
+        lines, status = [], "error"; ODDS_STATUS["errors"].append(f"{type(e).__name__}: {e}"[:300])
+    return {"lines": lines, "odds": {"status": status, **ODDS_STATUS, "errors": ODDS_STATUS["errors"][:5]}}
 
 
 def fetch_lines(wk, players):
     """One request per game. Passing up to 10 bookmakers counts as a single region,
     so each game costs (number of markets) credits: 4 markets x ~14 games = ~56 credits."""
     key = os.environ["ODDS_API_KEY"]; base = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl"
-    events = _get(f"{base}/events?apiKey={key}")
+    events = _get(f"{base}/events?apiKey={key}") or []
     want = {(TEAM_FULL[g.away_team], TEAM_FULL[g.home_team]): g.game_id for g in wk.itertuples()}
     markets = sorted({m for p in players for pr in p["props"] for m in [pr["market"]]})
     books = ",".join(SHARP_BOOKS + DFS_BOOKS)
@@ -204,7 +227,7 @@ def fetch_lines(wk, players):
     for ev in events:
         gid = want.get((ev["away_team"], ev["home_team"]))
         if not gid: continue
-        data = _get(f"{base}/events/{ev['id']}/odds?apiKey={key}&bookmakers={books}&markets={','.join(markets)}&oddsFormat=american")
+        data = _get(f"{base}/events/{ev['id']}/odds?apiKey={key}&bookmakers={books}&markets={','.join(markets)}&oddsFormat=american") or {}
         for bk in data.get("bookmakers", []):
             for m in bk["markets"]:
                 for o in m["outcomes"]:
