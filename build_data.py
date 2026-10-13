@@ -19,6 +19,7 @@ FILES = {
     "stats": f"{NFLVERSE}/stats_player/stats_player_week_{SEASON}.csv",
     "inj": f"{NFLVERSE}/injuries/injuries_{SEASON}.csv",
     "snaps": f"{NFLVERSE}/snap_counts/snap_counts_{SEASON}.csv",
+    "team": f"{NFLVERSE}/stats_team/stats_team_week_{SEASON}.csv",
 }
 # Which props we track for each position: (label, stat column, Odds API market key)
 MARKETS = {
@@ -276,9 +277,99 @@ def build_fantasy(stats, games, wk, week, defense_fp, league_fp, status_of, abse
             "adds": tr.get("adds", 0), "drops": tr.get("drops", 0),
             "teammateOut": [a["name"] for a in absences.get(team, []) if a["pid"] != pid and ((a["tgt"] or 0) >= 4 or (a["car"] or 0) >= 8 or a["pos"] == "QB")],
         })
+    try:
+        team_stats = load("team", LOCAL_DIR)
+        out += build_k_dst(stats, team_stats, games, week, {"opp": opp_of, "imp": imp_of, "game": game_of, "team_avg": team_avg, "status": status_of})
+    except Exception as e:
+        print("kickers/defenses skipped:", e, file=sys.stderr)
     out.sort(key=lambda x: -x["proj"])
     return {"players": out, "leagueAllowed": league_fp, "defense": defense_fp,
             "sleeper": {"ok": trending["ok"], "error": trending.get("error")}}
+
+
+# ---------------- kickers and team defenses (Yahoo default scoring) ----------------
+TEAM_NAME = {"ARI":"Arizona","ATL":"Atlanta","BAL":"Baltimore","BUF":"Buffalo","CAR":"Carolina","CHI":"Chicago","CIN":"Cincinnati","CLE":"Cleveland","DAL":"Dallas","DEN":"Denver","DET":"Detroit","GB":"Green Bay","HOU":"Houston","IND":"Indianapolis","JAX":"Jacksonville","KC":"Kansas City","LA":"LA Rams","LAC":"LA Chargers","LV":"Las Vegas","MIA":"Miami","MIN":"Minnesota","NE":"New England","NO":"New Orleans","NYG":"NY Giants","NYJ":"NY Jets","PHI":"Philadelphia","PIT":"Pittsburgh","SEA":"Seattle","SF":"San Francisco","TB":"Tampa Bay","TEN":"Tennessee","WAS":"Washington"}
+
+
+def pa_points(pa):
+    return 10 if pa <= 0 else 7 if pa <= 6 else 4 if pa <= 13 else 1 if pa <= 20 else 0 if pa <= 27 else -1 if pa <= 34 else -4
+
+
+def expected_pa_points(implied, sd=9.5):
+    import math
+    pts, tot = 0.0, 0.0
+    for x in range(0, 61):  # discrete approximation of a normal around the implied score
+        w = math.exp(-0.5 * ((x - implied) / sd) ** 2); pts += w * pa_points(x); tot += w
+    return pts / tot
+
+
+def build_k_dst(stats, team_stats, games, week, ctx):
+    out = []
+    played = games[games.result.notna() & (games.week < week)]
+    pa = {}
+    for g in played.itertuples():
+        pa[(g.home_team, int(g.week))] = g.away_score; pa[(g.away_team, int(g.week))] = g.home_score
+
+    def spread(vals, proj):
+        import statistics
+        sd = max(statistics.pstdev(vals) if len(vals) > 1 else 0, 0.35 * max(proj, 1))
+        return round(max(0, proj - 0.8 * sd), 1), round(proj + 0.8 * sd, 1)
+
+    # --- kickers ---
+    k = stats[(stats.position == "K") & (stats.season_type == "REG")].copy()
+    for c in ["fg_made_0_19", "fg_made_20_29", "fg_made_30_39", "fg_made_40_49", "fg_made_50_59", "fg_made_60_", "pat_made", "fg_made", "fg_att", "pat_att"]:
+        k[c] = k[c].fillna(0)
+    k["kp"] = 3 * (k.fg_made_0_19 + k.fg_made_20_29 + k.fg_made_30_39) + 4 * k.fg_made_40_49 + 5 * (k.fg_made_50_59 + k.fg_made_60_) + k.pat_made
+    allowed_k = k.groupby(["opponent_team", "week"]).kp.sum().groupby("opponent_team").mean()
+    rank_k = allowed_k.rank(method="min").astype(int)
+    for pid, logs in k.groupby("player_id"):
+        logs = logs.sort_values("week"); team = logs.cur.iloc[-1] if "cur" in logs else logs.team.iloc[-1]
+        if logs.week.iloc[-1] < week - 3: continue  # no longer kicking
+        base = 0.5 * logs.kp.mean() + 0.5 * logs.kp.tail(3).mean(); opp = ctx["opp"].get(team)
+        if opp:
+            ef = min(1.2, max(0.8, (ctx["imp"][team] / ctx["team_avg"][team]) ** 0.6)) if team in ctx["imp"] and ctx["team_avg"].get(team) else 1.0
+            mf = min(1.1, max(0.9, (allowed_k.get(opp, allowed_k.mean()) / allowed_k.mean()) ** 0.3))
+            proj = base * ef * mf
+        else:
+            proj = 0.0
+        fl, ce = spread(list(logs.kp), proj) if opp else (0, 0)
+        name = logs.player_display_name.iloc[-1]
+        out.append({"id": pid, "name": name, "pos": "K", "team": team, "opp": opp, "game": ctx["game"].get(team),
+                    "status": ctx["status"].get((key(name), team), ""), "proj": round(proj, 1), "floor": fl, "ceil": ce,
+                    "avg": round(float(logs.kp.mean()), 1), "games": int(len(logs)),
+                    "matchRank": int(rank_k[opp]) if opp in rank_k else None, "matchAllowed": round(float(allowed_k[opp]), 1) if opp in allowed_k else None,
+                    "implied": r1(ctx["imp"].get(team)), "log": [{"wk": int(w), "v": float(v)} for w, v in zip(logs.week, logs.kp)],
+                    "breakdown": [{"wk": int(r.week), "txt": f"{int(r.fg_made)}/{int(r.fg_att)} FG, {int(r.pat_made)}/{int(r.pat_att)} XP" + (f", long {int(r.fg_long)}" if r.fg_made and not pd.isna(r.fg_long) else "")} for r in logs.itertuples()],
+                    "opp_log": [], "snaps": [], "rise": 0, "adds": 0, "drops": 0, "teammateOut": []})
+
+    # --- team defenses ---
+    t = team_stats[team_stats.season_type == "REG"].copy()
+    for c in ["def_sacks", "def_interceptions", "fumble_recovery_opp", "def_tds", "special_teams_tds", "def_safeties", "def_punt_blocks", "def_pat_blocks", "def_fg_blocks"]:
+        t[c] = t[c].fillna(0)
+    t["ev"] = t.def_sacks + 2 * t.def_interceptions + 2 * t.fumble_recovery_opp + 6 * (t.def_tds + t.special_teams_tds) + 2 * t.def_safeties + 2 * (t.def_punt_blocks + t.def_pat_blocks + t.def_fg_blocks)
+    t["pa"] = [pa.get((tm, int(w))) for tm, w in zip(t.team, t.week)]
+    t = t[t.pa.notna()]
+    t["dp"] = t.ev + t.pa.map(pa_points)
+    # what each offense gives up to opposing defenses (sacks, turnovers, scores against)
+    given = t.groupby(["opponent_team"]).dp.mean(); given_ev = t.groupby("opponent_team").ev.mean()
+    rank_off = given.rank(method="min").astype(int)  # 32 = offense that feeds defenses the most
+    for team, logs in t.groupby("team"):
+        logs = logs.sort_values("week"); opp = ctx["opp"].get(team)
+        if opp:
+            ev = 0.5 * logs.ev.mean() + 0.5 * given_ev.get(opp, given_ev.mean())
+            opp_imp = ctx["imp"].get(opp)
+            pa_pts = expected_pa_points(opp_imp) if opp_imp is not None else float(logs.pa.map(pa_points).mean())
+            proj = ev + pa_pts
+        else:
+            proj = 0.0
+        fl, ce = spread(list(logs.dp), proj) if opp else (0, 0)
+        out.append({"id": "DEF-" + team, "name": f"{TEAM_NAME.get(team, team)} D/ST", "pos": "DEF", "team": team, "opp": opp, "game": ctx["game"].get(team),
+                    "status": "", "proj": round(proj, 1), "floor": fl, "ceil": ce, "avg": round(float(logs.dp.mean()), 1), "games": int(len(logs)),
+                    "matchRank": int(rank_off[opp]) if opp in rank_off else None, "matchAllowed": round(float(given[opp]), 1) if opp in given else None,
+                    "implied": r1(ctx["imp"].get(opp)), "log": [{"wk": int(w), "v": float(v)} for w, v in zip(logs.week, logs.dp)],
+                    "breakdown": [{"wk": int(r.week), "txt": f"{int(r.pa)} pts allowed, {r.def_sacks:g} sk, {int(r.def_interceptions)} INT, {int(r.fumble_recovery_opp)} FR" + (f", {int(r.def_tds + r.special_teams_tds)} TD" if r.def_tds + r.special_teams_tds else "")} for r in logs.itertuples()],
+                    "opp_log": [], "snaps": [], "rise": 0, "adds": 0, "drops": 0, "teammateOut": []})
+    return out
 
 
 # ---------------- The Odds API (optional, needs free key) ----------------
@@ -303,6 +394,7 @@ def _get(url):
         return None
 
 
+LOCAL_DIR = None
 PREV_PATH = None  # previous data.json, so runs without odds keep the last lines for the same week
 
 
@@ -350,7 +442,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--week", type=int); ap.add_argument("--out", default="data.json"); ap.add_argument("--local")
     a = ap.parse_args()
-    PREV_PATH = a.out
+    PREV_PATH = a.out; LOCAL_DIR = a.local
     d = build(a.week, a.local)
     with open(a.out, "w") as f: json.dump(d, f, separators=(",", ":"))
     print(f"week {d['week']}: {len(d['games'])} games, {len(d['players'])} players, {len(d['lines'])} lines -> {a.out}")

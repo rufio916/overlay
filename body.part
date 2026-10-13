@@ -167,7 +167,7 @@ details.inj summary{cursor:pointer;font-size:11px;font-weight:600;letter-spacing
     </div>
     <datalist id="fplayers"></datalist>
     <div id="fview"></div>
-    <details class="info"><summary>How projections work</summary><p>Projections are simple estimates: a blend of season and last-3-game half-PPR scoring, nudged by the half-PPR points this defense allows to the position and by the team's implied points. Range is a typical bad week to a typical good week. Players listed Out project to 0.</p></details>
+    <details class="info"><summary>How projections work</summary><p>Projections are simple estimates: a blend of season and last-3-game half-PPR scoring, nudged by the half-PPR points this defense allows to the position and by the team's implied points. Range is a typical bad week to a typical good week. Players listed Out project to 0.</p><p>Kickers and defenses use Yahoo's default scoring: field goals 3 points (0–39 yds), 4 (40–49), 5 (50+), extra points 1; defense gets 1 per sack, 2 per interception, fumble recovery, safety or blocked kick, 6 per TD, plus points-allowed tiers (+10 shutout down to −4 for 35+). A defense's projection uses its own sacks and takeaways, what the opponent's offense gives up, and the opponent's expected points. For a defense, "Team pts" is the opponent's expected points (lower is better).</p></details>
   </section>
 
   <section id="defense" hidden>
@@ -474,8 +474,8 @@ function fRow(p,extra=""){const g=fgrade(p);const t=fTrend(p);
   return `<td><button class="linkbtn" data-fid="${esc(p.id)}">${esc(p.name)}</button><div class="sub">${p.pos} · ${p.team} ${oppTxt(p)}</div></td>
   <td class="num"><b>${p.proj}</b></td><td class="num sub">${p.floor}–${p.ceil}</td>
   <td>${g?`<span class="chip g-${g}">${g}</span>`:""}</td><td><span class="trend ${t.cls}">${t.txt}</span></td><td class="num">${p.implied??"–"}</td><td>${statusTag(p)}</td>${extra}`;}
-const FHEAD=`<th>Player</th><th class="num">Proj</th><th class="num">Range</th><th>Matchup</th><th>Usage</th><th class="num">Team pts</th><th>Status</th>`;
-const SLOTS=[["QB",["QB"]],["RB",["RB"]],["RB",["RB"]],["WR",["WR"]],["WR",["WR"]],["TE",["TE"]],["W/R/T",["WR","RB","TE"]]];
+const FHEAD=`<th>Player</th><th class="num">Proj</th><th class="num">Range</th><th>Matchup</th><th>Usage</th><th class="num" title="Team's expected points (for a defense: the opponent's expected points)">Team pts</th><th>Status</th>`;
+const SLOTS=[["QB",["QB"]],["RB",["RB"]],["RB",["RB"]],["WR",["WR"]],["WR",["WR"]],["TE",["TE"]],["W/R/T",["WR","RB","TE"]],["K",["K"]],["DEF",["DEF"]]];
 function bestLineup(ids){const pool=ids.map(fp).filter(Boolean).sort((a,b)=>b.proj-a.proj);const used=new Set();const out=[];
   for(const [slot,ok] of SLOTS){const p=pool.find(x=>!used.has(x.id)&&ok.includes(x.pos));if(p)used.add(p.id);out.push({slot,p});}
   return{starters:out,bench:pool.filter(x=>!used.has(x.id))};}
@@ -490,9 +490,9 @@ function renderFantasy(){
     if(!state.myTeam.length)h+='<div class="panel"><p class="sub">Your team is empty. Type each player on your Yahoo roster above and tap Add. Overlay saves the list on this device and picks your best lineup every week.</p></div>';
     else{const L=bestLineup(state.myTeam);const total=L.starters.reduce((s,x)=>s+(x.p?.proj||0),0);
       h+=`<div class="tablebox"><table><thead><tr><th>Slot</th>${FHEAD}<th></th></tr></thead><tbody>`+
-        L.starters.map(x=>x.p?`<tr><td class="slot">${x.slot}</td>${fRow(x.p,`<td><button class="x" data-rmine="${esc(x.p.id)}" aria-label="Remove">✕</button></td>`)}</tr>`:`<tr><td class="slot">${x.slot}</td><td colspan="8" class="sub">Empty. Add a ${x.slot==="W/R/T"?"WR, RB or TE":x.slot}.</td></tr>`).join("")+
+        L.starters.map(x=>x.p?`<tr><td class="slot">${x.slot}</td>${fRow(x.p,`<td><button class="x" data-rmine="${esc(x.p.id)}" aria-label="Remove">✕</button></td>`)}</tr>`:`<tr><td class="slot">${x.slot}</td><td colspan="8" class="sub">Empty. Add a ${x.slot==="W/R/T"?"WR, RB or TE":x.slot==="DEF"?"team defense (e.g. \"Pittsburgh D/ST\")":x.slot}.</td></tr>`).join("")+
         L.bench.map(p=>`<tr class="bench"><td class="slot">BN</td>${fRow(p,`<td><button class="x" data-rmine="${esc(p.id)}" aria-label="Remove">✕</button></td>`)}</tr>`).join("")+
-        `</tbody></table></div><p class="sub" style="margin-top:8px">Suggested starters project <b>${total.toFixed(1)}</b> points. Lineup: QB, 2 RB, 2 WR, TE and one W/R/T flex (Yahoo's default; kicker and defense not included). For close calls, open Start / sit.</p>`;}
+        `</tbody></table></div><p class="sub" style="margin-top:8px">Suggested starters project <b>${total.toFixed(1)}</b> points. Lineup: QB, 2 RB, 2 WR, TE, W/R/T flex, K and DEF (Yahoo's default). For close calls, open Start / sit.</p>`;}
   }
   if(v==="cmp"){
     h=addBox("addcmp","Compare","Add");
@@ -513,8 +513,8 @@ function renderFantasy(){
     }
   }
   if(v==="rank"){
-    h=`<div class="controls"><label for="rpos">Position<select id="rpos"><option value="">All (flex)</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option></select></label></div>`;
-    const list=F.filter(p=>p.opp&&(!state.rpos||p.pos===state.rpos)&&(state.rpos||p.pos!=="QB")).slice(0,60);
+    h=`<div class="controls"><label for="rpos">Position<select id="rpos"><option value="">All (flex)</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option value="DEF">DEF</option></select></label></div>`;
+    const list=F.filter(p=>p.opp&&(!state.rpos||p.pos===state.rpos)&&(state.rpos||!["QB","K","DEF"].includes(p.pos))).slice(0,state.rpos==="K"||state.rpos==="DEF"?32:60);
     h+=`<div class="tablebox"><table><thead><tr><th class="num">#</th>${FHEAD}<th></th></tr></thead><tbody>`+list.map((p,i)=>`<tr><td class="num">${i+1}</td>${fRow(p,`<td>${state.myTeam.includes(p.id)?'<span class="sub">On team</span>':`<button class="x" data-addmine="${esc(p.id)}">+ Team</button>`}</td>`)}</tr>`).join("")+`</tbody></table></div>`;
   }
   if(v==="wire"){
@@ -526,11 +526,15 @@ function renderFantasy(){
       if(p.teammateOut.length&&p.pos!=="QB"){reasons.push(`${p.teammateOut[0]} out`);sc+=6;}
       if(p.adds>=1000){reasons.push(`${p.adds>=1e6?(p.adds/1e6).toFixed(1)+"M":(p.adds/1000).toFixed(p.adds>=10000?0:1)+"k"} Sleeper adds`);sc+=Math.min(12,Math.log10(p.adds)*3);}
       if(p.pos==="QB"&&p.status!=="Out"&&t.cls==="up"&&p.adds>=1000){sc+=2;}
-      return{p,reasons,sc};}).filter(x=>x.reasons.length&&x.p.avg<16&&x.p.status!=="Out").sort((a,b)=>b.sc-a.sc||b.p.proj-a.p.proj).slice(0,30);
+      return{p,reasons,sc};}).filter(x=>x.reasons.length&&x.p.avg<16&&x.p.status!=="Out"&&x.p.pos!=="K"&&x.p.pos!=="DEF").sort((a,b)=>b.sc-a.sc||b.p.proj-a.p.proj).slice(0,30);
     h=`<div class="banner"><b>Yahoo doesn't share roster data with Overlay,</b> so this list can't tell who's already taken in your league. Tap <b>Taken</b> on anyone rostered to hide him. ${sl.ok?"Sleeper adds show who other fantasy players are grabbing this week.":"Sleeper trending adds will appear after the next GitHub refresh."}</div>
       <div class="controls"><label class="chk" for="showrost"><input type="checkbox" id="showrost" ${state.showRost?"checked":""}> Show players I marked taken (${state.rostered.length})</label></div>`;
     h+=cand.length?`<div class="tablebox"><table><thead><tr>${FHEAD}<th>Why</th><th></th></tr></thead><tbody>`+cand.map(x=>`<tr>${fRow(x.p,`<td>${x.reasons.map(r=>`<span class="reason">${esc(r)}</span>`).join("")}</td><td style="white-space:nowrap"><button class="x" data-addmine="${esc(x.p.id)}">+ Team</button> <button class="x" data-taken="${esc(x.p.id)}">${state.rostered.includes(x.p.id)?"Untake":"Taken"}</button></td>`)}</tr>`).join("")+`</tbody></table></div>`
       :'<div class="panel"><p class="sub">No rising players found. Check back after the next refresh.</p></div>';
+    for(const pos of ["DEF","K"]){const all=F.filter(p=>p.pos===pos&&p.opp);const st=all.filter(p=>!hide.has(p.id)).slice(0,6);
+      if(!st.length)continue;
+      h+=`<h3 style="font-family:var(--display);text-transform:uppercase;font-size:20px;margin:22px 0 4px">Streaming ${pos==="DEF"?"defenses":"kickers"}</h3><p class="sub" style="margin:0 0 8px">Best projected ${pos==="DEF"?"defenses":"kickers"} this week that you haven't marked taken. Swap one in each week based on matchup.</p>`+
+      `<div class="tablebox"><table><thead><tr><th class="num">#</th>${FHEAD}<th></th></tr></thead><tbody>`+st.map(p=>`<tr><td class="num">${all.indexOf(p)+1}</td>${fRow(p,`<td style="white-space:nowrap"><button class="x" data-addmine="${esc(p.id)}">+ Team</button> <button class="x" data-taken="${esc(p.id)}">${state.rostered.includes(p.id)?"Untake":"Taken"}</button></td>`)}</tr>`).join("")+`</tbody></table></div>`;}
   }
   $("#fview").innerHTML=h;
   const rp=$("#rpos");if(rp){rp.value=state.rpos;rp.onchange=e=>{state.rpos=e.target.value;save();renderFantasy();};}
@@ -544,13 +548,15 @@ function addFromBox(boxId){const i=$("#"+boxId);const id=FBYNAME[i.value]||(F.fi
   save();renderFantasy();const n=$("#"+boxId);if(n)n.focus();}
 function openFantasy(id){const p=fp(id);if(!p)return;const g=fgrade(p);const t=fTrend(p);
   const pi=PID[p.id];const propLink=pi!==undefined?`<button class="btn" data-pi="${pi}" data-ki="0" data-switch="1">Open prop view</button>`:"";
+  const isKD=p.pos==="K"||p.pos==="DEF";
   const usage=p.opp_log.map((u,i)=>`<tr><td>Wk ${p.log[i]?.wk??"–"}</td><td>${pctf(p.snaps[i])}</td><td>${u}</td><td>${p.log[i]?.v??"–"}</td></tr>`).join("");
   $("#sheet").innerHTML=`<div class="sheethead"><div><h2>${esc(p.name)}</h2><div class="sub">${p.pos} · ${NAMES[p.team]||p.team} ${p.opp?(GAME[p.game]?.home===p.team?"vs ":"@ ")+NAMES[p.opp]+" · "+kick(GAME[p.game]):"· Bye week"}</div></div><button class="close" id="closebtn">Close</button></div>
    ${p.status?`<p>${statusTag(p)} on the latest injury report.</p>`:""}
-   <div class="stats"><div class="stat"><span>Half-PPR proj</span><b>${p.proj}</b></div><div class="stat"><span>Range</span><b>${p.floor}–${p.ceil}</b></div><div class="stat"><span>Season avg</span><b>${p.avg}</b></div></div>
-   ${p.opp?`<div class="verdict ${g==="A"||g==="B"?"good":g==="C"?"mid":"bad"}"><strong>${g} fantasy matchup</strong>${NAMES[p.opp]} allows ${p.matchAllowed} half-PPR points a game to ${p.pos}s (rank ${p.matchRank} of 32, where 32 allows the most; league average ${D.fantasy.leagueAllowed[p.pos]}). ${NAMES[p.team]} is expected to score ${p.implied??"–"} points.</div>`:""}
-   <div class="sec">Half-PPR points by game</div>${bars(p.log.slice(-6),p.avg,"Season avg "+p.avg,"Fantasy points by game")}
-   <div class="sec">Usage by game</div><div style="overflow-x:auto"><table class="mini"><thead><tr><th>Game</th><th>Snaps</th><th>${p.pos==="QB"?"Pass att":p.pos==="RB"?"Carries + targets":"Targets"}</th><th>Points</th></tr></thead><tbody>${usage}</tbody></table></div>
+   <div class="stats"><div class="stat"><span>${isKD?"Projection":"Half-PPR proj"}</span><b>${p.proj}</b></div><div class="stat"><span>Range</span><b>${p.floor}–${p.ceil}</b></div><div class="stat"><span>Season avg</span><b>${p.avg}</b></div></div>
+   ${p.opp?`<div class="verdict ${g==="A"||g==="B"?"good":g==="C"?"mid":"bad"}"><strong>${g} fantasy matchup</strong>${p.pos==="DEF"?`${NAMES[p.opp]}'s offense gives up ${p.matchAllowed} fantasy points a game to opposing defenses (rank ${p.matchRank} of 32, where 32 gives up the most). ${NAMES[p.opp]} is expected to score ${p.implied??"–"} points.`:p.pos==="K"?`${NAMES[p.opp]} allows ${p.matchAllowed} kicker points a game (rank ${p.matchRank} of 32, where 32 allows the most). ${NAMES[p.team]} is expected to score ${p.implied??"–"} points.`:`${NAMES[p.opp]} allows ${p.matchAllowed} half-PPR points a game to ${p.pos}s (rank ${p.matchRank} of 32, where 32 allows the most; league average ${D.fantasy.leagueAllowed[p.pos]}). ${NAMES[p.team]} is expected to score ${p.implied??"–"} points.`}</div>`:""}
+   <div class="sec">${isKD?"Fantasy":"Half-PPR"} points by game</div>${bars(p.log.slice(-6),p.avg,"Season avg "+p.avg,"Fantasy points by game")}
+   ${isKD?`<div class="sec">Game by game</div><div style="overflow-x:auto"><table class="mini"><thead><tr><th>Game</th><th>${p.pos==="K"?"Kicks":"Defense"}</th><th>Points</th></tr></thead><tbody>${(p.breakdown||[]).map((b,i)=>`<tr><td>Wk ${b.wk}</td><td>${esc(b.txt)}</td><td>${p.log[i]?.v??"–"}</td></tr>`).join("")}</tbody></table></div>`
+     :`<div class="sec">Usage by game</div><div style="overflow-x:auto"><table class="mini"><thead><tr><th>Game</th><th>Snaps</th><th>${p.pos==="QB"?"Pass att":p.pos==="RB"?"Carries + targets":"Targets"}</th><th>Points</th></tr></thead><tbody>${usage}</tbody></table></div>`}
    ${p.teammateOut.length?`<div class="sec">Teammates out</div><p class="sub">${esc(p.teammateOut.join(", "))} ${p.teammateOut.length>1?"are":"is"} out, which can open up work for ${esc(p.name)}.</p>`:""}
    ${p.adds||p.drops?`<div class="sec">Sleeper, last 48 hours</div><p class="sub">${p.adds.toLocaleString()} adds · ${p.drops.toLocaleString()} drops</p>`:""}
    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">${state.myTeam.includes(p.id)?"":`<button class="btn primary" data-addmine="${esc(p.id)}">Add to my team</button>`}<button class="btn" data-cmpadd="${esc(p.id)}">Compare</button>${propLink}</div>`;
