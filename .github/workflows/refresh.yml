@@ -24,7 +24,7 @@ jobs:
       - run: python build_data.py --out data.json
         env:
           # fresh odds only on Sat/Sun runs (and manual runs with the box ticked); other runs keep the last lines
-          ODDS_API_KEY: ${{ ((github.event_name == 'workflow_dispatch' && !inputs.odds) || github.event.schedule == '0 15 * * 3' || github.event.schedule == '0 15 * * 5') && '' || secrets.ODDS_API_KEY }}
+          ODDS_API_KEY: ${{ ((github.event_name == 'workflow_dispatch' && format('{0}', github.event.inputs.odds) != 'true') || github.event.schedule == '0 15 * * 3' || github.event.schedule == '0 15 * * 5') && '' || secrets.ODDS_API_KEY }}
       - run: python assemble.py index.html
       - run: |
           git config user.name "overlay-bot"

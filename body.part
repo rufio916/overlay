@@ -459,7 +459,7 @@ function renderFantasy(){
       if(t.cls==="up"&&p.pos!=="QB"){reasons.push(`Role growing ${t.txt.replace("▲ ","")}`);sc+=Math.min(t.d,1.5)*10;}
       const sn=p.snaps.filter(x=>x!=null);if(sn.length>=3){const a=(sn.at(-1)+sn.at(-2))/2,b=sn.slice(0,-2).reduce((x,y)=>x+y,0)/(sn.length-2);if(a-b>=.12){reasons.push(`Snaps up to ${Math.round(a*100)}%`);sc+=(a-b)*30;}}
       if(p.teammateOut.length&&p.pos!=="QB"){reasons.push(`${p.teammateOut[0]} out`);sc+=6;}
-      if(p.adds>=1000){reasons.push(`${(p.adds/1000).toFixed(p.adds>=10000?0:1)}k Sleeper adds`);sc+=Math.min(12,Math.log10(p.adds)*3);}
+      if(p.adds>=1000){reasons.push(`${p.adds>=1e6?(p.adds/1e6).toFixed(1)+"M":(p.adds/1000).toFixed(p.adds>=10000?0:1)+"k"} Sleeper adds`);sc+=Math.min(12,Math.log10(p.adds)*3);}
       if(p.pos==="QB"&&p.status!=="Out"&&t.cls==="up"&&p.adds>=1000){sc+=2;}
       return{p,reasons,sc};}).filter(x=>x.reasons.length&&x.p.avg<16&&x.p.status!=="Out").sort((a,b)=>b.sc-a.sc||b.p.proj-a.p.proj).slice(0,30);
     h=`<div class="banner"><b>Yahoo doesn't share roster data with Overlay,</b> so this list can't tell who's already taken in your league. Tap <b>Taken</b> on anyone rostered to hide him. ${sl.ok?"Sleeper adds show who other fantasy players are grabbing this week.":"Sleeper trending adds will appear after the next GitHub refresh."}</div>
