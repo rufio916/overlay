@@ -66,6 +66,47 @@ tr.bench td{opacity:.62}
 .kv span:first-child{color:var(--muted)}
 .why{font-size:12px;color:var(--muted)}
 .reason{font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;white-space:nowrap;background:var(--pos-soft);color:var(--pos);display:inline-block;margin:1px 2px 1px 0}
+/* clickable players */
+.plink{color:var(--accent);font-weight:600}
+tr.click:hover .plink,.pcard:hover .plink{text-decoration:underline}
+td.chev{color:var(--muted);font-size:20px;width:24px;text-align:center;padding-left:0}
+tr.click:hover td.chev{color:var(--accent)}
+.tip{display:flex;gap:12px;align-items:center;justify-content:space-between;background:var(--accent-soft);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px}
+.tip b{color:var(--fg)}
+.tip button{background:none;border:0;color:var(--muted);font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+/* info toggles */
+details.info{margin-top:10px;font-size:12px;color:var(--muted);max-width:80ch}
+details.info summary{cursor:pointer;font-weight:600;list-style:none;display:inline-flex;gap:6px;align-items:center}
+details.info summary::-webkit-details-marker{display:none}
+details.info summary::before{content:"ⓘ";font-size:14px}
+details.info p{margin:6px 0 0}
+details.inj summary{cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:18px 0 6px}
+.lede{margin-bottom:12px}
+/* filters toggle (phones) */
+.ftoggle{display:none}
+/* phone cards */
+.cards{display:none;flex-direction:column;gap:8px}
+.pcard{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;cursor:pointer;text-align:left;font:inherit;color:inherit;width:100%}
+.pcard .top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.pcard .play{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pcard .foot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.pcard .more-link{color:var(--accent);font-weight:600;font-size:13px;white-space:nowrap}
+.bigline{font-family:var(--mono);font-weight:600;font-size:16px}
+@media (max-width:700px){
+  .brand{font-size:24px}
+  .topin{padding-top:8px}
+  .week{padding-bottom:2px}
+  h2{font-size:22px;margin-top:16px}
+  #match .tablebox{display:none}
+  .cards{display:flex}
+  .ftoggle{display:inline-flex}
+  .controls{display:none}
+  .controls.open{display:flex}
+  nav.tabs{gap:0;padding:0 8px}
+  nav.tabs button{font-size:14px;padding:9px 7px 8px;letter-spacing:.02em}
+  .sample{display:none}
+  .banner{font-size:12px;padding:8px 12px}
+}
 </style>
 <header class="top">
   <div class="topin">
@@ -74,7 +115,7 @@ tr.bench td{opacity:.62}
     <div class="sample" id="freshness"></div>
   </div>
   <nav class="tabs" role="tablist">
-    <button role="tab" aria-selected="true" data-tab="match">Matchups</button>
+    <button role="tab" aria-selected="true" data-tab="match">Props</button>
     <button role="tab" aria-selected="false" data-tab="slip">Slip<span class="badge" id="slipcount" hidden>0</span></button>
     <button role="tab" aria-selected="false" data-tab="fantasy">Fantasy</button>
     <button role="tab" aria-selected="false" data-tab="defense">Defenses</button>
@@ -84,10 +125,12 @@ tr.bench td{opacity:.62}
 
 <main class="wrap">
   <section id="match">
-    <h2 id="matchtitle">Prop matchups</h2>
-    <p class="lede">Key players this week, graded on how their opponent's defense handles that position. Tap a player to check a PrizePicks line, see his usage, and add him to your slip.</p>
+    <h2 id="matchtitle">Props</h2>
+    <p class="lede">PrizePicks props ranked by edge, with each player's matchup and workload.</p>
+    <div class="tip" id="tip" hidden><span><b>Tap any player for the full breakdown:</b> line checker, matchup, usage, injuries and Add to slip.</span><button id="tipclose">Got it</button></div>
     <div class="banner" id="linesbanner"></div>
-    <div class="controls">
+    <button class="btn ftoggle" id="ftoggle" aria-expanded="false" aria-controls="filters">Filters</button>
+    <div class="controls" id="filters">
       <label for="q">Player<input type="search" id="q" placeholder="Search name"></label>
       <label for="pos">Position<select id="pos"><option value="">All</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option></select></label>
       <label for="mkt">Stat<select id="mkt"><option value="">All stats</option></select></label>
@@ -97,44 +140,49 @@ tr.bench td{opacity:.62}
       <label class="chk" for="wonly"><input type="checkbox" id="wonly"> Watchlist only</label>
     </div>
     <div class="tablebox"><table><thead id="matchhead"></thead><tbody id="matchbody"></tbody></table></div>
-    <p class="note">Defense rank: 1 allows the fewest to that position, 32 the most. Projection nudges the season average by how much this defense allows versus league average. Usage is the average over the last two games for the role behind that stat (pass attempts for passing, carries for rushing, targets for receiving). ▲ or ▼ marks a change of more than 15% from his earlier games.</p>
+    <div class="cards" id="matchcards"></div>
+    <details class="info"><summary>How to read this</summary>
+      <p><b>Edge</b> is the sportsbooks' no-vig win chance minus what your slip type needs to break even. "adj" means the book's line differed from PrizePicks and was adjusted.</p>
+      <p><b>Matchup</b> grades how much this defense allows to the position: A allows the most, F the least. Hover or open the player for the numbers.</p>
+      <p><b>Usage</b> is the last two games' pass attempts, carries or targets for that stat. ▲ or ▼ means a change of more than 15% from earlier games.</p>
+      <p><b>Projection</b> nudges the season average by how much this defense allows versus league average.</p></details>
   </section>
 
   <section id="slip" hidden>
     <h2>Slip builder</h2>
-    <p class="lede">Add picks from any player's page. Overlay estimates each pick's chance, flags picks that tend to hit or miss together, and shows what the slip is worth at your payout.</p>
+    <p class="lede">Add picks from any player's breakdown to see your slip's odds and payout.</p>
     <div class="slipgrid">
       <div class="panel" id="sliplegs"></div>
       <div class="panel" id="slipsum"></div>
     </div>
-    <p class="note">Chances come from sportsbook no-vig prices when books have the prop. Picks marked * use Overlay's rough estimate from this season's game logs and the matchup, treating picks as independent. Correlated picks hit together more often than these numbers say. Payouts vary by state and by pick type, so set the multiplier to what your app shows.</p>
+    <details class="info"><summary>How chances are calculated</summary><p>Chances come from sportsbook no-vig prices when books have the prop. Picks marked * use Overlay's rough estimate from this season's game logs and the matchup, treating picks as independent. Correlated picks hit together more often than these numbers say. Payouts vary by state and by pick type, so set the multiplier to what your app shows.</p></details>
   </section>
 
   <section id="fantasy" hidden>
     <h2 id="ftitle">Fantasy</h2>
-    <p class="lede">Half-PPR projections built from each player's recent scoring, his matchup and his team's expected points. Add your Yahoo roster once and Overlay sets your best lineup each week.</p>
+    <p class="lede">Half-PPR projections, your best lineup, start/sit and waiver pickups.</p>
     <div class="subnav" id="fnav">
       <button data-fv="team">My team</button><button data-fv="cmp">Start / sit</button><button data-fv="rank">Rankings</button><button data-fv="wire">Waivers</button>
     </div>
     <datalist id="fplayers"></datalist>
     <div id="fview"></div>
-    <p class="note">Projections are simple estimates: a blend of season and last-3-game half-PPR scoring, nudged by the half-PPR points this defense allows to the position and by the team's implied points. Range is a typical bad week to a typical good week. Players listed Out project to 0.</p>
+    <details class="info"><summary>How projections work</summary><p>Projections are simple estimates: a blend of season and last-3-game half-PPR scoring, nudged by the half-PPR points this defense allows to the position and by the team's implied points. Range is a typical bad week to a typical good week. Players listed Out project to 0.</p></details>
   </section>
 
   <section id="defense" hidden>
     <h2>Defense heatmap</h2>
-    <p class="lede">What each defense allows per game, by position. Green means the defense gives up a lot, so it's a good matchup to attack. Tap a column to sort.</p>
+    <p class="lede">What each defense allows per game. Green = good matchup to attack. Tap a column to sort.</p>
     <div class="tablebox"><table class="heat"><thead id="heathead"></thead><tbody id="heatbody"></tbody></table></div>
   </section>
 
   <section id="games" hidden>
     <h2>Games &amp; injuries</h2>
-    <p class="lede">Pick a game for its betting environment, both injury reports and every player we track in it.</p>
+    <p class="lede">Pick a game for its environment, injury reports and players.</p>
     <div class="games" id="gamelist"></div>
     <div id="gamedetail"></div>
   </section>
 </main>
-<footer class="wrap" style="padding-block:0 32px"><p class="note">Data: <a href="https://github.com/nflverse" style="color:var(--accent)">nflverse</a> (stats, snap counts, injuries, schedule and lines). <span id="updated"></span> For entertainment and research only.</p></footer>
+<footer class="wrap" style="padding-block:0 32px"><p class="note">Data: <a href="https://github.com/nflverse" style="color:var(--accent)">nflverse</a> (stats, snap counts, injuries, schedule and lines). <span id="updated"></span> <span id="credits"></span> For entertainment and research only.</p></footer>
 
 <div class="scrim" id="scrim" hidden></div>
 <aside class="sheet" id="sheet" hidden aria-label="Player detail"></aside>
@@ -209,24 +257,39 @@ const isWatched=id=>state.watch.includes(id);
 function toggleWatch(id){state.watch=isWatched(id)?state.watch.filter(x=>x!==id):[...state.watch,id];save();renderMatch();
   document.querySelectorAll(`.star[data-w="${CSS.escape(id)}"]`).forEach(b=>b.setAttribute("aria-pressed",isWatched(id)));}
 
+function matchTitle(r){return `${NAMES[r.p.opp]} allows ${r.d.avg} ${r.pr.stat.toLowerCase()} a game to ${r.p.pos}s (rank ${r.d.rank} of 32; league avg ${r.lg})`;}
 function renderMatch(){
   const L=HAS_LINES;
-  $("#matchhead").innerHTML=`<tr><th aria-label="Watchlist"></th><th>Player</th><th>Stat</th><th class="num">Season avg</th><th>Usage</th><th class="num">Opp allows</th><th class="num">Opp rank</th><th>Matchup</th><th class="num">Projection</th>${L?'<th class="num">PP line</th><th>Play</th><th class="num">Fair win %</th><th class="num">Edge</th>':""}<th>Status</th></tr>`;
+  $("#matchhead").innerHTML=L
+    ?`<tr><th aria-label="Watchlist"></th><th>Player</th><th>Stat</th><th class="num">PP line</th><th>Play</th><th class="num">Edge</th><th>Matchup</th><th>Usage</th><th class="num">Proj</th><th>Status</th><th aria-label="Open"></th></tr>`
+    :`<tr><th aria-label="Watchlist"></th><th>Player</th><th>Stat</th><th class="num">Season avg</th><th class="num">Proj</th><th>Matchup</th><th>Usage</th><th>Status</th><th aria-label="Open"></th></tr>`;
   let list=ROWS.filter(r=>(!state.q||r.p.name.toLowerCase().includes(state.q.toLowerCase()))&&(!state.pos||r.p.pos===state.pos)&&(!state.mkt||r.pr.stat===state.mkt)&&(!state.gm||r.p.game===state.gm)&&(!state.grd||state.grd.includes(r.g))&&(!state.wonly||isWatched(r.p.id)));
   list=list.map(r=>{let e=null,side=null,win=null;if(r.price&&r.price.fair!=null){side=r.price.fair>=.5?"More":"Less";win=Math.max(r.price.fair,1-r.price.fair);e=win-state.be;}return{...r,e,side,win};});
-  list.sort(L?(a,b)=>(b.e??-9)-(a.e??-9):(a,b)=>(b.pr.proj-b.pr.avg)/b.pr.avg-(a.pr.proj-a.pr.avg)/a.pr.avg);
-  const cols=L?14:10;
-  if(!list.length){$("#matchbody").innerHTML=`<tr><td colspan="${cols}" class="empty">${state.wonly&&!state.watch.length?"Your watchlist is empty. Tap the star next to any player to add him.":"No players match these filters. Clear a filter to see more."}</td></tr>`;return;}
-  $("#matchbody").innerHTML=list.map(r=>{const dp=r.pr.proj-r.pr.avg,pct=r.pr.avg?dp/r.pr.avg:0;const t=trend(r.p,r.pr.stat);
-    return `<tr class="click" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}">
-    <td><button class="star" data-w="${esc(r.p.id)}" aria-pressed="${isWatched(r.p.id)}" aria-label="Watch ${esc(r.p.name)}">★</button></td>
-    <td><div class="pname">${esc(r.p.name)}</div><div class="sub">${r.p.pos} · ${r.p.team} vs ${r.p.opp}</div></td>
-    <td>${r.pr.stat}</td><td class="num">${r.pr.avg}</td><td><span class="trend ${t.cls}">${t.txt}</span></td>
-    <td class="num">${r.d.avg} <span class="sub">/ ${r.lg}</span></td><td class="num">${r.d.rank}</td>
-    <td><span class="chip g-${r.g}">${r.g} matchup</span></td>
-    <td class="num">${r.pr.proj} <span class="delta ${pct>.02?"up":pct<-.02?"dn":""}">${dp>=0?"+":""}${dp.toFixed(1)}</span></td>
-    ${L?(r.price?`<td class="num">${r.price.line}</td><td>${r.side?`<span class="pick ${r.side==="More"?"more":"less"}">${r.side}</span>`:'<span class="sub">Books not posted</span>'}</td><td class="num">${r.win?(r.win*100).toFixed(1)+"%"+(r.price.adjusted?'<span class="sub" title="Adjusted from a different sportsbook line"> adj</span>':""):"–"}</td><td class="num">${r.e!=null?`<span class="edge ${r.e>0?"hot":"cold"}">${r.e>0?"+":""}${(r.e*100).toFixed(1)}%</span>`:"–"}</td>`:'<td class="num sub" colspan="4">Not on PrizePicks</td>'):""}
-    <td>${r.p.status?`<span class="st ${r.p.status}">${r.p.status}</span>`:""}</td></tr>`;}).join("");
+  list.sort(L?(a,b)=>(b.e??-9)-(a.e??-9)||(b.price?1:0)-(a.price?1:0):(a,b)=>(b.pr.proj-b.pr.avg)/b.pr.avg-(a.pr.proj-a.pr.avg)/a.pr.avg);
+  const nf=["pos","mkt","gm","grd"].filter(k=>state[k]).length+(state.wonly?1:0)+(state.q?1:0);
+  $("#ftoggle").textContent=nf?`Filters (${nf})`:"Filters";
+  const cols=L?11:9;
+  if(!list.length){const msg=state.wonly&&!state.watch.length?"Your watchlist is empty. Tap the star next to any player to add him.":"No players match these filters. Clear a filter to see more.";
+    $("#matchbody").innerHTML=`<tr><td colspan="${cols}" class="empty">${msg}</td></tr>`;$("#matchcards").innerHTML=`<div class="panel empty">${msg}</div>`;return;}
+  const edgeTxt=r=>r.e!=null?`<span class="edge ${r.e>0?"hot":"cold"}" title="Book win chance ${(r.win*100).toFixed(1)}%${r.price.adjusted?", adjusted from "+r.price.from:""}">${r.e>0?"+":""}${(r.e*100).toFixed(1)}%</span>${r.price.adjusted?'<span class="sub"> adj</span>':""}`:'<span class="sub">–</span>';
+  const playTxt=r=>r.side?`<span class="pick ${r.side==="More"?"more":"less"}">${r.side}</span>`:'<span class="sub">Books not posted</span>';
+  const stTxt=r=>r.p.status?`<span class="st ${r.p.status}">${r.p.status}</span>`:"";
+  const head=r=>`<div class="pname plink">${esc(r.p.name)}</div><div class="sub">${r.p.pos} · ${r.p.team} ${GAME[r.p.game]?.home===r.p.team?"vs":"@"} ${r.p.opp}</div>`;
+  $("#matchbody").innerHTML=list.map(r=>{const t=trend(r.p,r.pr.stat);
+    const star=`<td><button class="star" data-w="${esc(r.p.id)}" aria-pressed="${isWatched(r.p.id)}" aria-label="Watch ${esc(r.p.name)}">★</button></td>`;
+    const match=`<td><span class="chip g-${r.g}" title="${esc(matchTitle(r))}">${r.g} matchup</span></td>`;
+    const use=`<td><span class="trend ${t.cls}">${t.txt}</span></td>`;
+    const tail=`<td>${stTxt(r)}</td><td class="chev" aria-hidden="true">›</td></tr>`;
+    if(L)return `<tr class="click" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}" title="Open full breakdown">${star}<td>${head(r)}</td><td>${r.pr.stat}</td>
+      ${r.price?`<td class="num">${r.price.line}</td><td>${playTxt(r)}</td><td class="num">${edgeTxt(r)}</td>`:'<td class="num sub" colspan="3">Not on PrizePicks</td>'}
+      ${match}${use}<td class="num">${r.pr.proj}</td>${tail}`;
+    return `<tr class="click" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}" title="Open full breakdown">${star}<td>${head(r)}</td><td>${r.pr.stat}</td><td class="num">${r.pr.avg}</td><td class="num">${r.pr.proj}</td>${match}${use}${tail}`;}).join("");
+  $("#matchcards").innerHTML=list.slice(0,80).map(r=>{const t=trend(r.p,r.pr.stat);
+    const line=r.price?`<span class="bigline">${r.pr.stat} ${r.price.line}</span>${playTxt(r)}${r.e!=null?edgeTxt(r):""}`:`<span class="bigline">${r.pr.stat}</span><span class="sub">avg ${r.pr.avg} · proj ${r.pr.proj}</span>`;
+    return `<div class="pcard click" role="button" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}">
+      <div class="top"><div style="min-width:0">${head(r)}</div><div style="display:flex;gap:6px;align-items:center">${stTxt(r)}<button class="star" data-w="${esc(r.p.id)}" aria-pressed="${isWatched(r.p.id)}" aria-label="Watch ${esc(r.p.name)}">★</button></div></div>
+      <div class="play">${line}</div>
+      <div class="foot"><div class="play"><span class="chip g-${r.g}">${r.g} matchup</span><span class="trend ${t.cls}">${t.txt}</span></div><span class="more-link">Details ›</span></div></div>`;}).join("")+(list.length>80?`<p class="sub">Showing the top 80. Use Filters to narrow the list.</p>`:"");
 }
 
 // ---------- charts ----------
@@ -249,7 +312,7 @@ const pctf=x=>x==null?"–":Math.round(x*100)+"%";
 
 // ---------- player sheet ----------
 let cur=null; // {pi,ki,line,side}
-function openPlayer(pi,ki){
+function openPlayer(pi,ki){if(!state.tipDone){state.tipDone=true;save();const t=$("#tip");if(t)t.hidden=true;}
   const p=D.players[pi],pr=p.props[ki];const price=priceFor(p,pr);
   const existing=state.legs.find(l=>l.id===p.id&&l.stat===pr.stat);
   cur={pi,ki,side:existing?.side||"More",line:existing?.line??price?.line??Math.round(pr.proj)-.5};
@@ -299,8 +362,9 @@ function drawSheet(){
    <div class="envrow">${impPts!=null?`<span class="flag">${p.team} implied ${impPts} pts</span>`:""}<span class="flag">${spreadTxt(G)||"No line"}</span>${G.total?`<span class="flag">O/U ${G.total}</span>`:""}${G.roof?`<span class="flag">${G.roof==="dome"||G.roof==="closed"?"Indoors":G.roof==="outdoors"?"Outdoors":esc(G.roof)}</span>`:""}${G.wind!=null&&G.wind>=15?`<span class="flag warn">Wind ${G.wind} mph</span>`:""}${(p.team===G.home?G.restHome:G.restAway)<=5?`<span class="flag warn">Short rest</span>`:""}${qbChange?`<span class="flag warn">QB change: ${esc(qbNow)} expected</span>`:""}</div>
    <div class="sec">${esc(pr.stat)} allowed by ${NAMES[p.opp]} to ${p.pos}s, by game</div>
    ${bars(d.last,lg,"League avg "+lg,"Defense allowed by week")}
-   <div class="sec">${NAMES[p.team]} injuries</div>${injList(p.team)}
-   <div class="sec">${NAMES[p.opp]} injuries</div>${injList(p.opp)}`;
+   <details class="inj"><summary>Injury reports · ${p.team} (${(D.injuries[p.team]||[]).length}) · ${p.opp} (${(D.injuries[p.opp]||[]).length}) ›</summary>
+   <div class="sec">${NAMES[p.team]}</div>${injList(p.team)}
+   <div class="sec">${NAMES[p.opp]}</div>${injList(p.opp)}</details>`;
   $("#closebtn").onclick=closeSheet;
   $("#lineinput").oninput=e=>{const v=parseFloat(e.target.value);if(!isNaN(v)){cur.line=v;updateChecker();}};
   document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{cur.side=b.dataset.side;document.querySelectorAll(".seg button").forEach(x=>x.setAttribute("aria-pressed",x===b));updateChecker();});
@@ -494,15 +558,19 @@ $("#fplayers").innerHTML=F.map(p=>`<option value="${esc(`${p.name} (${p.pos}, ${
 $("#fnav").addEventListener("click",e=>{const b=e.target.closest("button[data-fv]");if(b){state.fv=b.dataset.fv;save();renderFantasy();}});
 
 // ---------- wiring ----------
-$("#weeklabel").textContent=`NFL ${D.season} · WEEK ${D.week} · PRIZEPICKS`;
+$("#weeklabel").textContent=`NFL · WEEK ${D.week}`;
 const injWeek=Math.max(0,...Object.values(D.injuries).flat().map(x=>x.week));
 $("#freshness").textContent=`Stats thru Wk ${D.statsThrough}`;$("#freshness").style.color="var(--muted)";$("#freshness").style.background="var(--raised)";
-$("#matchtitle").textContent=`Week ${D.week} prop matchups`;
+$("#matchtitle").textContent=`Week ${D.week} props`;
 const oddsAt=D.odds&&D.odds.fetched?new Date(D.odds.fetched).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit"}):null;
-$("#linesbanner").innerHTML=HAS_LINES?`<b>PrizePicks lines as of ${oddsAt||"the last refresh"}.</b> Edge = sportsbook no-vig win chance minus your slip's break-even. Fresh lines arrive Sunday mornings, so check the app for any line that has moved since.`:
+$("#linesbanner").innerHTML=HAS_LINES?`<b>PrizePicks lines as of ${oddsAt||"the last refresh"}.</b> New lines arrive Sunday mornings; double-check any line in the app before you play it.`:
  `<b>Live PrizePicks lines aren't connected yet.</b> Open a player and type in the line from the app to check it.${injWeek<D.week?` Injury statuses are from the Week ${injWeek} report until Week ${D.week} reports come out midweek.`:""}`;
 $("#sliplabel").hidden=!HAS_LINES;
+if(D.odds&&D.odds.remaining!=null)$("#credits").textContent=`Odds credits left: ${D.odds.remaining}.`;
 $("#updated").textContent="Updated "+new Date(D.generated).toLocaleString("en-US",{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+".";
+if(!state.tipDone)$("#tip").hidden=false;
+$("#tipclose").onclick=()=>{state.tipDone=true;save();$("#tip").hidden=true;};
+$("#ftoggle").onclick=()=>{const o=$("#filters").classList.toggle("open");$("#ftoggle").setAttribute("aria-expanded",o);};
 const TABS=["match","slip","fantasy","defense","games"];
 function setTab(t){if(!TABS.includes(t))t="match";state.tab=t;save();document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));TABS.forEach(id=>$("#"+id).hidden=id!==t);}
 document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
@@ -522,9 +590,9 @@ document.addEventListener("click",e=>{
   const rc=e.target.closest("[data-rcmp]");if(rc){state.cmp=state.cmp.filter(x=>x!==rc.dataset.rcmp);save();renderFantasy();return;}
   const tk=e.target.closest("[data-taken]");if(tk){const id=tk.dataset.taken;state.rostered=state.rostered.includes(id)?state.rostered.filter(x=>x!==id):[...state.rostered,id];save();renderFantasy();return;}
   const rm=e.target.closest("[data-rm]");if(rm){state.legs.splice(+rm.dataset.rm,1);save();renderSlip();return;}
-  const t=e.target.closest("tr.click,.linkbtn,[data-switch]");if(t&&t.dataset.pi!==undefined){openPlayer(+t.dataset.pi,+t.dataset.ki);return;}
+  const t=e.target.closest("tr.click,.pcard,.linkbtn,[data-switch]");if(t&&t.dataset.pi!==undefined){openPlayer(+t.dataset.pi,+t.dataset.ki);return;}
   const g=e.target.closest(".game");if(g){state.game=g.dataset.g;save();renderGames();}
 });
-$("#matchbody").addEventListener("keydown",e=>{if(e.key==="Enter"){const r=e.target.closest("tr.click");if(r)openPlayer(+r.dataset.pi,+r.dataset.ki);}});
+for(const id of ["#matchbody","#matchcards"])$(id).addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){const r=e.target.closest("tr.click,.pcard");if(r&&e.target===r){e.preventDefault();state.tipDone=true;save();$("#tip").hidden=true;openPlayer(+r.dataset.pi,+r.dataset.ki);}}});
 renderMatch();renderSlip();renderFantasy();renderHeat();renderGames();setTab(state.tab);
 </script>
