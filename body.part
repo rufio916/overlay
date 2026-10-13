@@ -126,7 +126,7 @@ details.inj summary{cursor:pointer;font-size:11px;font-weight:600;letter-spacing
 <main class="wrap">
   <section id="match">
     <h2 id="matchtitle">Props</h2>
-    <p class="lede">PrizePicks props ranked by edge, with each player's matchup and workload.</p>
+    <p class="lede">PrizePicks props ranked by the sportsbooks' chance to hit, with each player's matchup and workload.</p>
     <div class="tip" id="tip" hidden><span><b>Tap any player for the full breakdown:</b> line checker, matchup, usage, injuries and Add to slip.</span><button id="tipclose">Got it</button></div>
     <div class="banner" id="linesbanner"></div>
     <button class="btn ftoggle" id="ftoggle" aria-expanded="false" aria-controls="filters">Filters</button>
@@ -142,10 +142,11 @@ details.inj summary{cursor:pointer;font-size:11px;font-weight:600;letter-spacing
     <div class="tablebox"><table><thead id="matchhead"></thead><tbody id="matchbody"></tbody></table></div>
     <div class="cards" id="matchcards"></div>
     <details class="info"><summary>How to read this</summary>
-      <p><b>Edge</b> is the sportsbooks' no-vig win chance minus what your slip type needs to break even. "adj" means the book's line differed from PrizePicks and was adjusted.</p>
+      <p><b>Hit chance</b> is how likely the sportsbooks (Pinnacle, FanDuel, DraftKings, with their fee removed) think the pick is to hit. It's <b>green</b> when it beats what your slip type needs to break even, about 54% for a 6-pick Flex. "adj" means the book's line was a little different from PrizePicks, so Overlay adjusted it.</p>
+      <p><b>Our proj</b> is Overlay's own rough estimate from a handful of games. It's a lean, not a price. When it disagrees with the hit chance, trust the hit chance.</p>
       <p><b>Matchup</b> grades how much this defense allows to the position: A allows the most, F the least. Hover or open the player for the numbers.</p>
       <p><b>Usage</b> is the last two games' pass attempts, carries or targets for that stat. ▲ or ▼ means a change of more than 15% from earlier games.</p>
-      <p><b>Projection</b> nudges the season average by how much this defense allows versus league average.</p></details>
+</details>
   </section>
 
   <section id="slip" hidden>
@@ -261,8 +262,8 @@ function matchTitle(r){return `${NAMES[r.p.opp]} allows ${r.d.avg} ${r.pr.stat.t
 function renderMatch(){
   const L=HAS_LINES;
   $("#matchhead").innerHTML=L
-    ?`<tr><th aria-label="Watchlist"></th><th>Player</th><th>Stat</th><th class="num">PP line</th><th>Play</th><th class="num">Edge</th><th>Matchup</th><th>Usage</th><th class="num">Proj</th><th>Status</th><th aria-label="Open"></th></tr>`
-    :`<tr><th aria-label="Watchlist"></th><th>Player</th><th>Stat</th><th class="num">Season avg</th><th class="num">Proj</th><th>Matchup</th><th>Usage</th><th>Status</th><th aria-label="Open"></th></tr>`;
+    ?`<tr><th aria-label="Watchlist"></th><th>Player</th><th>Stat</th><th class="num">PP line</th><th>Play</th><th class="num" title="Sportsbooks' no-vig chance this pick hits">Hit chance</th><th>Matchup</th><th>Usage</th><th class="num" title="Overlay's own rough projection">Our proj</th><th>Status</th><th aria-label="Open"></th></tr>`
+    :`<tr><th aria-label="Watchlist"></th><th>Player</th><th>Stat</th><th class="num">Season avg</th><th class="num" title="Overlay's own rough projection">Our proj</th><th>Matchup</th><th>Usage</th><th>Status</th><th aria-label="Open"></th></tr>`;
   let list=ROWS.filter(r=>(!state.q||r.p.name.toLowerCase().includes(state.q.toLowerCase()))&&(!state.pos||r.p.pos===state.pos)&&(!state.mkt||r.pr.stat===state.mkt)&&(!state.gm||r.p.game===state.gm)&&(!state.grd||state.grd.includes(r.g))&&(!state.wonly||isWatched(r.p.id)));
   list=list.map(r=>{let e=null,side=null,win=null;if(r.price&&r.price.fair!=null){side=r.price.fair>=.5?"More":"Less";win=Math.max(r.price.fair,1-r.price.fair);e=win-state.be;}return{...r,e,side,win};});
   list.sort(L?(a,b)=>(b.e??-9)-(a.e??-9)||(b.price?1:0)-(a.price?1:0):(a,b)=>(b.pr.proj-b.pr.avg)/b.pr.avg-(a.pr.proj-a.pr.avg)/a.pr.avg);
@@ -271,7 +272,7 @@ function renderMatch(){
   const cols=L?11:9;
   if(!list.length){const msg=state.wonly&&!state.watch.length?"Your watchlist is empty. Tap the star next to any player to add him.":"No players match these filters. Clear a filter to see more.";
     $("#matchbody").innerHTML=`<tr><td colspan="${cols}" class="empty">${msg}</td></tr>`;$("#matchcards").innerHTML=`<div class="panel empty">${msg}</div>`;return;}
-  const edgeTxt=r=>r.e!=null?`<span class="edge ${r.e>0?"hot":"cold"}" title="Book win chance ${(r.win*100).toFixed(1)}%${r.price.adjusted?", adjusted from "+r.price.from:""}">${r.e>0?"+":""}${(r.e*100).toFixed(1)}%</span>${r.price.adjusted?'<span class="sub"> adj</span>':""}`:'<span class="sub">–</span>';
+  const edgeTxt=r=>r.e!=null?`<span class="edge ${r.e>0?"hot":"cold"}" title="Sportsbooks give this ${(r.win*100).toFixed(1)}%${r.price.adjusted?" (adjusted from their "+r.price.from+" line)":""}. Your slip needs ${(state.be*100).toFixed(1)}%.">${(r.win*100).toFixed(0)}%</span>${r.price.adjusted?'<span class="sub"> adj</span>':""}`:'<span class="sub">–</span>';
   const playTxt=r=>r.side?`<span class="pick ${r.side==="More"?"more":"less"}">${r.side}</span>`:'<span class="sub">Books not posted</span>';
   const stTxt=r=>r.p.status?`<span class="st ${r.p.status}">${r.p.status}</span>`:"";
   const head=r=>`<div class="pname plink">${esc(r.p.name)}</div><div class="sub">${r.p.pos} · ${r.p.team} ${GAME[r.p.game]?.home===r.p.team?"vs":"@"} ${r.p.opp}</div>`;
@@ -285,7 +286,7 @@ function renderMatch(){
       ${match}${use}<td class="num">${r.pr.proj}</td>${tail}`;
     return `<tr class="click" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}" title="Open full breakdown">${star}<td>${head(r)}</td><td>${r.pr.stat}</td><td class="num">${r.pr.avg}</td><td class="num">${r.pr.proj}</td>${match}${use}${tail}`;}).join("");
   $("#matchcards").innerHTML=list.slice(0,80).map(r=>{const t=trend(r.p,r.pr.stat);
-    const line=r.price?`<span class="bigline">${r.pr.stat} ${r.price.line}</span>${playTxt(r)}${r.e!=null?edgeTxt(r):""}`:`<span class="bigline">${r.pr.stat}</span><span class="sub">avg ${r.pr.avg} · proj ${r.pr.proj}</span>`;
+    const line=r.price?`<span class="bigline">${r.pr.stat} ${r.price.line}</span>${playTxt(r)}${r.e!=null?edgeTxt(r)+'<span class="sub"> to hit</span>':""}`:`<span class="bigline">${r.pr.stat}</span><span class="sub">avg ${r.pr.avg} · proj ${r.pr.proj}</span>`;
     return `<div class="pcard click" role="button" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}">
       <div class="top"><div style="min-width:0">${head(r)}</div><div style="display:flex;gap:6px;align-items:center">${stTxt(r)}<button class="star" data-w="${esc(r.p.id)}" aria-pressed="${isWatched(r.p.id)}" aria-label="Watch ${esc(r.p.name)}">★</button></div></div>
       <div class="play">${line}</div>
@@ -563,7 +564,7 @@ const injWeek=Math.max(0,...Object.values(D.injuries).flat().map(x=>x.week));
 $("#freshness").textContent=`Stats thru Wk ${D.statsThrough}`;$("#freshness").style.color="var(--muted)";$("#freshness").style.background="var(--raised)";
 $("#matchtitle").textContent=`Week ${D.week} props`;
 const oddsAt=D.odds&&D.odds.fetched?new Date(D.odds.fetched).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit"}):null;
-$("#linesbanner").innerHTML=HAS_LINES?`<b>PrizePicks lines as of ${oddsAt||"the last refresh"}.</b> New lines arrive Sunday mornings; double-check any line in the app before you play it.`:
+$("#linesbanner").innerHTML=HAS_LINES?`<b>PrizePicks lines as of ${oddsAt||"the last refresh"}.</b> Green hit chance = beats your slip's <span id="bepct">${(state.be*100).toFixed(0)}%</span> break-even. New lines arrive Sunday mornings; double-check any line in the app before you play it.`:
  `<b>Live PrizePicks lines aren't connected yet.</b> Open a player and type in the line from the app to check it.${injWeek<D.week?` Injury statuses are from the Week ${injWeek} report until Week ${D.week} reports come out midweek.`:""}`;
 $("#sliplabel").hidden=!HAS_LINES;
 if(D.odds&&D.odds.remaining!=null)$("#credits").textContent=`Odds credits left: ${D.odds.remaining}.`;
@@ -578,7 +579,7 @@ document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>setTab(b.d
 D.games.forEach(g=>$("#gm").insertAdjacentHTML("beforeend",`<option value="${g.id}">${g.away} @ ${g.home}</option>`));
 for(const k of["pos","mkt","gm","grd"]){$("#"+k).value=state[k];$("#"+k).onchange=e=>{state[k]=e.target.value;save();renderMatch();};}
 $("#wonly").checked=state.wonly;$("#wonly").onchange=e=>{state.wonly=e.target.checked;save();renderMatch();};
-$("#sliptype").value=String(state.be);$("#sliptype").onchange=e=>{state.be=+e.target.value;save();renderMatch();};
+$("#sliptype").value=String(state.be);$("#sliptype").onchange=e=>{state.be=+e.target.value;save();renderMatch();const b=$("#bepct");if(b)b.textContent=(state.be*100).toFixed(0)+"%";};
 $("#q").oninput=e=>{state.q=e.target.value;renderMatch();};
 document.addEventListener("click",e=>{
   const st=e.target.closest(".star");if(st){e.stopPropagation();toggleWatch(st.dataset.w);return;}
