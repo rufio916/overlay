@@ -110,6 +110,42 @@ def build(week=None, local_dir=None):
                 "tgt": r1(rows.targets.mean()), "car": r1(rows.carries.mean()), "games": len(played),
                 "without": [w for w in team_weeks.get(team, []) if w not in played]})
 
+    def make_player(pid, pos, team, opp, game_id):
+        pool = stats[(stats.position == pos) & (stats.cur == team)]
+        logs = pool[pool.player_id == pid].sort_values("week")
+        name = logs.player_display_name.iloc[-1]
+        props = []
+        for label, col, mkey in MARKETS[pos]:
+            d = defense.get(opp, {}).get(f"{pos}|{label}")
+            lg = league[f"{pos}|{label}"]
+            vals = logs[col].astype(float)
+            avg = float(vals.mean()); sd = float(vals.std()) if len(vals) > 1 else avg * 0.45
+            proj = avg * (d["avg"] / lg) ** 0.5 if d and lg else avg  # soft adjustment
+            props.append({"stat": label, "col": col, "market": mkey, "avg": round(avg, 1),
+                          "proj": round(proj, 1), "sd": round(sd, 1),
+                          "log": [{"wk": int(w), "v": round(float(v), 1)} for w, v in zip(logs.week, vals)]})
+        usage = [{"wk": int(r.week), "snap": r3(snap_pct.get((key(name), team, int(r.week)))),
+                  "tgt": int(r.targets), "tshare": r3(r.target_share), "car": int(r.carries),
+                  "cshare": r3(r.carry_share), "att": int(r.attempts)} for r in logs.itertuples()]
+        # with/without splits for each teammate who is out
+        splits = []
+        for a in absences.get(team, []):
+            if a["pid"] == pid: continue
+            played = set(logs.week.astype(int))
+            wo = [w for w in a["without"] if w in played]
+            w_ = [w for w in played if w not in a["without"]]
+            def avg_of(ws, col):
+                x = logs[logs.week.isin(ws)][col]; return r1(x.mean()) if len(x) else None
+            main = MARKETS[pos][0][1]
+            splits.append({"name": a["name"], "pos": a["pos"], "status": a["status"], "tgt": a["tgt"], "car": a["car"],
+                           "nWith": len(w_), "nWithout": len(wo),
+                           "useWith": avg_of(w_, "u"), "useWithout": avg_of(wo, "u"),
+                           "statWith": avg_of(w_, main), "statWithout": avg_of(wo, main), "stat": MARKETS[pos][0][0]})
+        return ({"id": pid, "name": name, "pos": pos, "team": team, "opp": opp,
+                        "game": game_id, "status": status_of.get((key(name), team), ""),
+                        "props": props, "usage": usage, "splits": splits})
+
+
     # ---- players to watch in each game ----
     players = []
     for g in wk.itertuples():
@@ -123,38 +159,7 @@ def build(week=None, local_dir=None):
                     match = pool[pool.player_display_name.map(key) == key(qb_name)]
                     if not match.empty: pids = [match.player_id.iloc[0]]
                 for pid in pids:
-                    logs = pool[pool.player_id == pid].sort_values("week")
-                    name = logs.player_display_name.iloc[-1]
-                    props = []
-                    for label, col, mkey in MARKETS[pos]:
-                        d = defense.get(opp, {}).get(f"{pos}|{label}")
-                        lg = league[f"{pos}|{label}"]
-                        vals = logs[col].astype(float)
-                        avg = float(vals.mean()); sd = float(vals.std()) if len(vals) > 1 else avg * 0.45
-                        proj = avg * (d["avg"] / lg) ** 0.5 if d and lg else avg  # soft adjustment
-                        props.append({"stat": label, "col": col, "market": mkey, "avg": round(avg, 1),
-                                      "proj": round(proj, 1), "sd": round(sd, 1),
-                                      "log": [{"wk": int(w), "v": round(float(v), 1)} for w, v in zip(logs.week, vals)]})
-                    usage = [{"wk": int(r.week), "snap": r3(snap_pct.get((key(name), team, int(r.week)))),
-                              "tgt": int(r.targets), "tshare": r3(r.target_share), "car": int(r.carries),
-                              "cshare": r3(r.carry_share), "att": int(r.attempts)} for r in logs.itertuples()]
-                    # with/without splits for each teammate who is out
-                    splits = []
-                    for a in absences.get(team, []):
-                        if a["pid"] == pid: continue
-                        played = set(logs.week.astype(int))
-                        wo = [w for w in a["without"] if w in played]
-                        w_ = [w for w in played if w not in a["without"]]
-                        def avg_of(ws, col):
-                            x = logs[logs.week.isin(ws)][col]; return r1(x.mean()) if len(x) else None
-                        main = MARKETS[pos][0][1]
-                        splits.append({"name": a["name"], "pos": a["pos"], "status": a["status"], "tgt": a["tgt"], "car": a["car"],
-                                       "nWith": len(w_), "nWithout": len(wo),
-                                       "useWith": avg_of(w_, "u"), "useWithout": avg_of(wo, "u"),
-                                       "statWith": avg_of(w_, main), "statWithout": avg_of(wo, main), "stat": MARKETS[pos][0][0]})
-                    players.append({"id": pid, "name": name, "pos": pos, "team": team, "opp": opp,
-                                    "game": g.game_id, "status": status_of.get((key(name), team), ""),
-                                    "props": props, "usage": usage, "splits": splits})
+                    players.append(make_player(pid, pos, team, opp, g.game_id))
 
     # ---- game environment ----
     def last_qb(team):
@@ -173,12 +178,24 @@ def build(week=None, local_dir=None):
         e["qbAwayLast"], e["qbHomeLast"] = last_qb(g.away_team), last_qb(g.home_team)
         games_out.append(e)
 
+    odds = odds_block(wk, players)
+    tracked = {key(p["name"]) for p in players}
+    games_by_team = {}
+    for g in wk.itertuples():
+        games_by_team[g.away_team] = (g.home_team, g.game_id); games_by_team[g.home_team] = (g.away_team, g.game_id)
+    for nm in sorted({key(l["player"]) for l in odds["lines"] if l["book"] == "prizepicks"} - tracked):
+        cand = stats[(stats.player_display_name.map(key) == nm) & stats.position.isin(list(MARKETS)) & stats.cur.isin(list(games_by_team))]
+        if cand.empty: continue
+        r = cand.sort_values("week").iloc[-1]
+        opp, gid = games_by_team[r.cur]
+        players.append(make_player(r.player_id, r.position, r.cur, opp, gid)); tracked.add(nm)
+
     return {
         "generated": datetime.now(timezone.utc).isoformat(timespec="minutes"),
         "season": SEASON, "week": week, "statsThrough": played_through,
         "games": games_out, "league": league, "defense": defense, "injuries": injuries,
         "absences": absences, "players": players,
-        **odds_block(wk, players),
+        **odds,
     }
 
 

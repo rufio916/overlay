@@ -91,7 +91,7 @@ input[type=search]{width:190px}
       <div class="panel" id="sliplegs"></div>
       <div class="panel" id="slipsum"></div>
     </div>
-    <p class="note">Chances are rough estimates from this season's game logs and the matchup, treating picks as independent. Correlated picks hit together more often than these numbers say. Payouts vary by state and by pick type, so set the multiplier to what your app shows.</p>
+    <p class="note">Chances come from sportsbook no-vig prices when books have the prop. Picks marked * use Overlay's rough estimate from this season's game logs and the matchup, treating picks as independent. Correlated picks hit together more often than these numbers say. Payouts vary by state and by pick type, so set the multiplier to what your app shows.</p>
   </section>
 
   <section id="defense" hidden>
@@ -139,21 +139,31 @@ const imp=o=>o<0?(-o)/(-o+100):100/(o+100);
 const norm=s=>String(s||"").toLowerCase().replace(/\b(jr|sr|ii|iii|iv)\b/g,"").replace(/[^a-z]/g,"");
 const SHARP=["pinnacle","fanduel","draftkings"];const LINES={};
 for(const l of D.lines||[]){const k=norm(l.player)+"|"+l.market;(LINES[k]=LINES[k]||[]).push(l);}
+const BOOKNAME={pinnacle:"Pinnacle",fanduel:"FanDuel",draftkings:"DraftKings",prizepicks:"PrizePicks",underdog:"Underdog"};
+function sdFor(pr){const k=pr.stat==="Receptions"?.42:pr.stat==="Pass Yds"?.24:.5;
+  return Math.max(Math.sqrt(.5*pr.sd*pr.sd+.5*Math.pow(k*Math.max(pr.proj,1),2)),pr.stat==="Receptions"?1:5);}
+function zinv(p){let lo=-8,hi=8;for(let i=0;i<60;i++){const m=(lo+hi)/2;if(cdf(m)<p)lo=m;else hi=m;}return(lo+hi)/2;}
+// Sharp-book market for this prop: no-vig over chance at the book line closest to the target (books in priority order win ties)
+function sharpFor(p,pr,target){const ls=LINES[norm(p.name)+"|"+pr.market];if(!ls)return null;let best=null;
+  for(const b of SHARP){const byLine={};for(const l of ls)if(l.book===b)(byLine[l.line]=byLine[l.line]||{})[l.side]=l.price;
+    for(const [ln,o] of Object.entries(byLine)){if(o.Over==null||o.Under==null)continue;const d=Math.abs(+ln-target);
+      if(!best||d<best.d-1e-9){const a=imp(o.Over),c=imp(o.Under);best={book:b,line:+ln,over:a/(a+c),d};}}}
+  return best;}
+function marketChance(p,pr,line,side){const s=sharpFor(p,pr,line);if(!s||s.d>Math.max(3,.12*line))return null;
+  const sd=sdFor(pr);const mu=s.line+sd*zinv(s.over);const over=s.d<1e-9?s.over:1-cdf((line-mu)/sd);
+  return{p:side==="More"?over:1-over,book:s.book,line:s.line,adjusted:s.d>1e-9};}
 function priceFor(p,pr){const ls=LINES[norm(p.name)+"|"+pr.market];if(!ls)return null;
   const pp=ls.find(l=>l.book==="prizepicks"&&l.side==="Over");if(!pp)return null;
-  for(const b of SHARP){const o=ls.find(l=>l.book===b&&l.side==="Over"&&l.line===pp.line),u=ls.find(l=>l.book===b&&l.side==="Under"&&l.line===pp.line);
-    if(o&&u){const a=imp(o.price),c=imp(u.price);return{line:pp.line,book:b,fair:a/(a+c)};}}
-  return{line:pp.line,fair:null};}
+  const ud=ls.find(l=>l.book==="underdog"&&l.side==="Over");const m=marketChance(p,pr,pp.line,"More");
+  return{line:pp.line,ud:ud?.line,fair:m?m.p:null,book:m?.book,from:m?.line,adjusted:m?.adjusted};}
 const HAS_LINES=(D.lines||[]).length>0;
 
 // ---------- math ----------
 function grade(rank){return rank>=26?"A":rank>=20?"B":rank>=13?"C":rank>=7?"D":"F";}
 function erf(x){const t=1/(1+.3275911*Math.abs(x));const y=1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-.284496736)*t+.254829592)*t*Math.exp(-x*x);return x>=0?y:-y;}
 const cdf=z=>.5*(1+erf(z/Math.SQRT2));
-function chance(pr,line,side){ // rough: normal around projection, spread from game logs blended with a typical spread for the stat
-  const k=pr.stat==="Receptions"?.42:pr.stat==="Pass Yds"?.24:.5;
-  const sd=Math.max(Math.sqrt(.5*pr.sd*pr.sd+.5*Math.pow(k*Math.max(pr.proj,1),2)),pr.stat==="Receptions"?1:5);
-  const over=1-cdf((line-pr.proj)/sd);return side==="More"?over:1-over;}
+function modelChance(pr,line,side){const over=1-cdf((line-pr.proj)/sdFor(pr));return side==="More"?over:1-over;}
+function chanceInfo(p,pr,line,side){const m=marketChance(p,pr,line,side);return m?{p:m.p,src:"market",m}:{p:modelChance(pr,line,side),src:"model"};}
 const USE={"Pass Yds":{f:x=>x.att,u:"pass att"},"Rush Yds":{f:x=>x.car,u:"carries"},"Rec Yds":{f:x=>x.tgt,u:"targets"},"Receptions":{f:x=>x.tgt,u:"targets"}};
 function trend(p,stat){const u=p.usage,m=USE[stat];if(!m||u.length<3)return{cls:"flat",txt:"–"};
   const last=u.slice(-2).map(m.f),prev=u.slice(0,-2).map(m.f);const a=last.reduce((s,v)=>s+v,0)/last.length,b=prev.reduce((s,v)=>s+v,0)/prev.length;
@@ -188,7 +198,7 @@ function renderMatch(){
     <td class="num">${r.d.avg} <span class="sub">/ ${r.lg}</span></td><td class="num">${r.d.rank}</td>
     <td><span class="chip g-${r.g}">${r.g} matchup</span></td>
     <td class="num">${r.pr.proj} <span class="delta ${pct>.02?"up":pct<-.02?"dn":""}">${dp>=0?"+":""}${dp.toFixed(1)}</span></td>
-    ${L?(r.price?`<td class="num">${r.price.line}</td><td>${r.side?`<span class="pick ${r.side==="More"?"more":"less"}">${r.side}</span>`:'<span class="sub">No sharp price</span>'}</td><td class="num">${r.win?(r.win*100).toFixed(1)+"%":"–"}</td><td class="num">${r.e!=null?`<span class="edge ${r.e>0?"hot":"cold"}">${r.e>0?"+":""}${(r.e*100).toFixed(1)}%</span>`:"–"}</td>`:'<td class="num sub" colspan="4">Not on PrizePicks</td>'):""}
+    ${L?(r.price?`<td class="num">${r.price.line}</td><td>${r.side?`<span class="pick ${r.side==="More"?"more":"less"}">${r.side}</span>`:'<span class="sub">Books not posted</span>'}</td><td class="num">${r.win?(r.win*100).toFixed(1)+"%"+(r.price.adjusted?'<span class="sub" title="Adjusted from a different sportsbook line"> adj</span>':""):"–"}</td><td class="num">${r.e!=null?`<span class="edge ${r.e>0?"hot":"cold"}">${r.e>0?"+":""}${(r.e*100).toFixed(1)}%</span>`:"–"}</td>`:'<td class="num sub" colspan="4">Not on PrizePicks</td>'):""}
     <td>${r.p.status?`<span class="st ${r.p.status}">${r.p.status}</span>`:""}</td></tr>`;}).join("");
 }
 
@@ -219,13 +229,13 @@ function openPlayer(pi,ki){
   if(cur.line<=0)cur.line=.5;
   drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;$("#closebtn").focus();
 }
-function hitStats(pr,line,side){const L=pr.log;const hit=v=>side==="More"?v.v>line:v.v<line;
-  const l5=L.slice(-5);return{l5:l5.filter(hit).length+"/"+l5.length,season:L.filter(hit).length+"/"+L.length,est:chance(pr,line,side)};}
+function hitStats(p,pr,line,side){const L=pr.log;const hit=v=>side==="More"?v.v>line:v.v<line;
+  const l5=L.slice(-5);const c=chanceInfo(p,pr,line,side);return{l5:l5.filter(hit).length+"/"+l5.length,season:L.filter(hit).length+"/"+L.length,est:c.p,src:c.src,m:c.m};}
 function drawSheet(){
   const {pi,ki}=cur;const p=D.players[pi],pr=p.props[ki];const key=p.pos+"|"+pr.stat;const d=D.defense[p.opp][key];const lg=D.league[key];const g=grade(d.rank);const G=GAME[p.game];
   const kind=g==="A"||g==="B"?"good":g==="C"?"mid":"bad";
   const soft=d.rank>=26?"one of the softest":d.rank>=20?"softer than average":d.rank>=13?"about average":d.rank>=7?"tougher than average":"one of the toughest";
-  const pctDiff=Math.round((d.avg-lg)/lg*100);const price=priceFor(p,pr);const h=hitStats(pr,cur.line,cur.side);
+  const pctDiff=Math.round((d.avg-lg)/lg*100);const price=priceFor(p,pr);const h=hitStats(p,pr,cur.line,cur.side);
   const be=+state.be;const inSlip=state.legs.some(l=>l.id===p.id&&l.stat===pr.stat);
   const statBtns=p.props.map((x,k)=>`<button class="btn" ${k===ki?'aria-current="true" style="border-color:var(--accent);color:var(--accent)"':""} data-pi="${pi}" data-ki="${k}" data-switch="1">${esc(x.stat)}</button>`).join(" ");
   const usageRows=p.usage.map(u=>`<tr><td>Wk ${u.wk}</td><td>${pctf(u.snap)}</td>${p.pos==="QB"?`<td>${u.att}</td><td>${u.car}</td>`:p.pos==="RB"?`<td>${u.car}</td><td>${pctf(u.cshare)}</td><td>${u.tgt}</td>`:`<td>${u.tgt}</td><td>${pctf(u.tshare)}</td>`}</tr>`).join("");
@@ -247,12 +257,12 @@ function drawSheet(){
        <input type="number" id="lineinput" step="0.5" min="0" value="${cur.line}">
        <div class="seg"><button class="more" data-side="More" aria-pressed="${cur.side==="More"}">More</button><button class="less" data-side="Less" aria-pressed="${cur.side==="Less"}">Less</button></div></div>
      <div class="hits" id="hitsbox">${hitsHtml(h,be)}</div>
-     <div class="row" style="justify-content:space-between"><span class="sub">Needs about ${(be*100).toFixed(1)}% to beat your slip type. Rough estimate from his game logs and this matchup.</span>
+     <div class="row" style="justify-content:space-between"><span class="sub">Needs about ${(be*100).toFixed(1)}% to beat your slip type. <span id="estsrc">${srcText(h)}</span></span>
        <button class="btn primary" id="addleg">${inSlip?"Update slip":"Add to slip"}</button></div>
    </div>
    <div class="verdict ${kind}"><strong>${g} matchup for ${esc(pr.stat.toLowerCase())}</strong>
    ${NAMES[p.opp]} is ${soft} against ${p.pos}s here. They allow ${d.avg} ${pr.stat.toLowerCase()} per game to the position, ${Math.abs(pctDiff)}% ${pctDiff>=0?"above":"below"} the league average of ${lg} (rank ${d.rank} of 32). Projection: <b>${pr.proj}</b> (season avg ${pr.avg}).
-   ${price&&price.fair!=null?`<br>Sharp books (${price.book}) make ${price.fair>=.5?"More":"Less"} ${price.line} a ${(Math.max(price.fair,1-price.fair)*100).toFixed(1)}% chance.`:""}</div>
+   ${price&&price.fair!=null?`<br>${BOOKNAME[price.book]} (no-vig${price.adjusted?`, adjusted from its ${price.from} line`:""}) makes ${price.fair>=.5?"More":"Less"} ${price.line} a ${(Math.max(price.fair,1-price.fair)*100).toFixed(1)}% chance.`:""}${price&&price.ud!=null&&price.ud!==price.line?`<br>Line shop: Underdog has ${price.ud} vs PrizePicks ${price.line}.`:""}</div>
    <div class="sec">${esc(p.name)} · ${pr.stat} by game</div>
    <div id="logchart">${bars(pr.log.slice(-6),pr.avg,"Season avg "+pr.avg,"Player game log",cur.line)}</div>
    <div class="sec">Usage by game</div>
@@ -271,9 +281,11 @@ function drawSheet(){
     state.legs=state.legs.filter(l=>!(l.id===p.id&&l.stat===pr.stat));state.legs.push(leg);save();renderSlip();$("#addleg").textContent="Update slip";toast(`Added ${p.name} ${cur.side} ${cur.line}`);};
 }
 function hitsHtml(h,be){return `<div><span>Last 5</span><b>${h.l5}</b></div><div><span>Season</span><b>${h.season}</b></div>
-       <div><span>Est. chance</span><b style="color:${h.est>=be?"var(--pos)":"var(--fg)"}">${(h.est*100).toFixed(0)}%</b></div>`;}
+       <div><span>${h.src==="market"?"Book chance":"Est. chance"}</span><b style="color:${h.est>=be?"var(--pos)":"var(--fg)"}">${(h.est*100).toFixed(0)}%</b></div>`;}
+function srcText(h){if(h.src!=="market")return"Rough estimate from his game logs and this matchup. No sportsbook price for this prop yet.";const m=h.m;
+  return `From ${BOOKNAME[m.book]}'s no-vig price at ${m.line}${m.adjusted?", adjusted to this line":""}.`;}
 function updateChecker(){if(!cur)return;const p=D.players[cur.pi],pr=p.props[cur.ki];  // update results only, never the input itself
-  $("#hitsbox").innerHTML=hitsHtml(hitStats(pr,cur.line,cur.side),+state.be);
+  const hh=hitStats(p,pr,cur.line,cur.side);$("#hitsbox").innerHTML=hitsHtml(hh,+state.be);$("#estsrc").textContent=srcText(hh);
   $("#logchart").innerHTML=bars(pr.log.slice(-6),pr.avg,"Season avg "+pr.avg,"Player game log",cur.line);}
 function closeSheet(){$("#sheet").hidden=true;$("#scrim").hidden=true;cur=null;}
 $("#scrim").onclick=closeSheet;
@@ -296,13 +308,13 @@ function correlations(legs){const out=[];
       if(rb&&pass)out.push({k:"plus",t:`${rb.p.name} rushing over and ${pass.p.name} passing over fit the same script: one team leads and runs, the other throws to catch up.`});}
   }return out;}
 function renderSlip(){
-  const legs=state.legs.map(l=>{const p=D.players[PID[l.id]];const pr=p.props.find(x=>x.stat===l.stat);return{...l,p,pr,est:chance(pr,l.line,l.side)};});
+  const legs=state.legs.map(l=>{const p=D.players[PID[l.id]];const pr=p.props.find(x=>x.stat===l.stat);const c=chanceInfo(p,pr,l.line,l.side);return{...l,p,pr,est:c.p,src:c.src};});
   const n=legs.length;$("#slipcount").hidden=!n;$("#slipcount").textContent=n;
   if(!n){$("#sliplegs").innerHTML='<h3>Your picks</h3><p class="sub">No picks yet. Open any player on the Matchups tab, set the line from the app, choose More or Less, and tap Add to slip.</p>';
     $("#slipsum").innerHTML='<h3>Slip value</h3><p class="sub">Add at least two picks.</p>';return;}
   $("#sliplegs").innerHTML=`<h3>Your picks</h3>`+legs.map((l,i)=>`<div class="leg"><div style="min-width:0"><button class="linkbtn" data-pi="${PID[l.id]}" data-ki="${l.p.props.indexOf(l.pr)}">${esc(l.p.name)}</button>
     <div class="sub">${l.p.pos} · ${l.p.team} vs ${l.p.opp} · ${esc(l.stat)} · proj ${l.pr.proj}</div></div>
-    <div class="legr"><span class="pick ${l.side==="More"?"more":"less"}">${l.side} ${l.line}</span><span class="edge ${l.est>=state.be?"hot":"cold"}">${Math.round(l.est*100)}%</span><button class="x" data-rm="${i}" aria-label="Remove">✕</button></div></div>`).join("")
+    <div class="legr"><span class="pick ${l.side==="More"?"more":"less"}">${l.side} ${l.line}</span><span class="edge ${l.est>=state.be?"hot":"cold"}" title="${l.src==="market"?"Sportsbook price":"Model estimate"}">${Math.round(l.est*100)}%${l.src==="model"?"*":""}</span><button class="x" data-rm="${i}" aria-label="Remove">✕</button></div></div>`).join("")
     +correlations(legs).map(c=>`<div class="corr ${c.k}">${c.k==="plus"?"▲ ":"▼ "}${esc(c.t)}</div>`).join("")
     +`<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" id="copyslip">Copy slip</button><button class="btn" id="clearslip">Clear slip</button></div>`;
   const all=legs.reduce((s,l)=>s*l.est,1);const mult=state.mult[n];
