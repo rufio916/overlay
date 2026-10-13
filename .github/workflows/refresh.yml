@@ -5,7 +5,12 @@ on:
     - cron: "0 15 * * 5"     # Fri 8am Pacific: final injury designations (no odds credits)
     - cron: "0 15 * * 6"     # Sat 8am Pacific: stats, injuries + PrizePicks lines
     - cron: "0 15 * * 0"     # Sun 8am Pacific: game-day lines
-  workflow_dispatch: {}       # "Run workflow" button for a manual refresh
+  workflow_dispatch:           # "Run workflow" button for a manual refresh
+    inputs:
+      odds:
+        description: "Pull fresh PrizePicks/sportsbook lines (uses ~55 of 500 monthly credits)"
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
@@ -18,8 +23,8 @@ jobs:
       - run: pip install pandas
       - run: python build_data.py --out data.json
         env:
-          # odds only on Sat/Sun runs and manual runs, to stay inside the free 500 credits
-          ODDS_API_KEY: ${{ (github.event.schedule == '0 15 * * 3' || github.event.schedule == '0 15 * * 5') && '' || secrets.ODDS_API_KEY }}
+          # fresh odds only on Sat/Sun runs (and manual runs with the box ticked); other runs keep the last lines
+          ODDS_API_KEY: ${{ ((github.event_name == 'workflow_dispatch' && !inputs.odds) || github.event.schedule == '0 15 * * 3' || github.event.schedule == '0 15 * * 5') && '' || secrets.ODDS_API_KEY }}
       - run: python assemble.py index.html
       - run: |
           git config user.name "overlay-bot"

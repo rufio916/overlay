@@ -1,4 +1,7 @@
+<!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>Overlay NFL</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -157,6 +160,21 @@ input[type=search]{width:190px}
 .flag{font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;background:var(--raised);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
 .flag.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:6px;font-weight:600;z-index:40}
+.subnav{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 16px}
+.subnav button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:7px 14px;cursor:pointer}
+.subnav button[aria-pressed="true"]{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+.addrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.addrow input{min-width:0;flex:1 1 220px;max-width:340px}
+.slot{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--muted);width:56px}
+tr.bench td{opacity:.62}
+.cmpgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.cmpcard{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.cmpcard.win{border-color:var(--pos);box-shadow:0 0 0 1px var(--pos)}
+.big{font-family:var(--mono);font-size:30px;font-weight:600;line-height:1}
+.kv{display:flex;justify-content:space-between;gap:8px;font-size:13px;border-top:1px solid var(--line);padding-top:6px}
+.kv span:first-child{color:var(--muted)}
+.why{font-size:12px;color:var(--muted)}
+.reason{font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;white-space:nowrap;background:var(--pos-soft);color:var(--pos);display:inline-block;margin:1px 2px 1px 0}
 </style>
 <header class="top">
   <div class="topin">
@@ -167,6 +185,7 @@ input[type=search]{width:190px}
   <nav class="tabs" role="tablist">
     <button role="tab" aria-selected="true" data-tab="match">Matchups</button>
     <button role="tab" aria-selected="false" data-tab="slip">Slip<span class="badge" id="slipcount" hidden>0</span></button>
+    <button role="tab" aria-selected="false" data-tab="fantasy">Fantasy</button>
     <button role="tab" aria-selected="false" data-tab="defense">Defenses</button>
     <button role="tab" aria-selected="false" data-tab="games">Games</button>
   </nav>
@@ -198,6 +217,17 @@ input[type=search]{width:190px}
       <div class="panel" id="slipsum"></div>
     </div>
     <p class="note">Chances come from sportsbook no-vig prices when books have the prop. Picks marked * use Overlay's rough estimate from this season's game logs and the matchup, treating picks as independent. Correlated picks hit together more often than these numbers say. Payouts vary by state and by pick type, so set the multiplier to what your app shows.</p>
+  </section>
+
+  <section id="fantasy" hidden>
+    <h2 id="ftitle">Fantasy</h2>
+    <p class="lede">Half-PPR projections built from each player's recent scoring, his matchup and his team's expected points. Add your Yahoo roster once and Overlay sets your best lineup each week.</p>
+    <div class="subnav" id="fnav">
+      <button data-fv="team">My team</button><button data-fv="cmp">Start / sit</button><button data-fv="rank">Rankings</button><button data-fv="wire">Waivers</button>
+    </div>
+    <datalist id="fplayers"></datalist>
+    <div id="fview"></div>
+    <p class="note">Projections are simple estimates: a blend of season and last-3-game half-PPR scoring, nudged by the half-PPR points this defense allows to the position and by the team's implied points. Range is a typical bad week to a typical good week. Players listed Out project to 0.</p>
   </section>
 
   <section id="defense" hidden>
@@ -233,7 +263,7 @@ function spreadTxt(g){if(g.spread==null)return"";if(g.spread===0)return"Pick'em"
 function toast(t){const el=$("#toast");el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,1800);}
 
 // ---------- state (saved per viewer) ----------
-let state={tab:"match",q:"",pos:"",mkt:"",gm:"",grd:"",be:.542,game:D.games[0]?.id,wonly:false,watch:[],legs:[],mult:{2:3,3:5,4:10,5:20,6:37.5},week:D.week};
+let state={tab:"match",q:"",pos:"",mkt:"",gm:"",grd:"",be:.542,game:D.games[0]?.id,wonly:false,watch:[],legs:[],mult:{2:3,3:5,4:10,5:20,6:37.5},week:D.week,myTeam:[],rostered:[],cmp:[],fv:"team",rpos:"",showRost:false};
 try{const s=JSON.parse(localStorage.getItem("overlay-v3")||"null");if(s)Object.assign(state,s,{q:""});}catch(e){}
 if(state.week!==D.week){state.legs=[];state.week=D.week;}  // new week, fresh slip
 state.legs=state.legs.filter(l=>PID[l.id]!==undefined);
@@ -473,6 +503,105 @@ function renderGames(){
     <div class="panel"><h3>Players we track</h3>${tracked.map(playerRow).join("")}</div></div>`;
 }
 
+// ---------- fantasy ----------
+const F=(D.fantasy&&D.fantasy.players)||[];const FID=Object.fromEntries(F.map((p,i)=>[p.id,i]));
+const FBYNAME=Object.fromEntries(F.map(p=>[`${p.name} (${p.pos}, ${p.team})`,p.id]));
+state.myTeam=state.myTeam.filter(id=>FID[id]!==undefined);state.cmp=state.cmp.filter(id=>FID[id]!==undefined);
+const fp=id=>F[FID[id]];
+const fgrade=p=>p.matchRank?grade(p.matchRank):null;
+function oppTxt(p){if(!p.opp)return'<span class="flag">Bye</span>';const g=GAME[p.game];return `${g&&g.home===p.team?"vs":"@"} ${p.opp}`;}
+function statusTag(p){return p.status?`<span class="st ${p.status}">${p.status}</span>`:"";}
+function fTrend(p){const u=p.opp_log;if(u.length<3)return{cls:"flat",txt:"–"};const a=(u.slice(-2).reduce((x,y)=>x+y,0))/Math.min(2,u.length),prev=u.slice(0,-2),b=prev.reduce((x,y)=>x+y,0)/prev.length;
+  const d=b?(a-b)/b:1;const sig=Math.abs(d)>.15&&Math.abs(a-b)>=1.5;const unit=p.pos==="QB"?"att":p.pos==="RB"?"opp":"tgt";
+  return{cls:sig?(d>0?"up":"dn"):"flat",txt:`${sig?(d>0?"▲ ":"▼ "):""}${a%1?a.toFixed(1):a} ${unit}`,d};}
+function fRow(p,extra=""){const g=fgrade(p);const t=fTrend(p);
+  return `<td><button class="linkbtn" data-fid="${esc(p.id)}">${esc(p.name)}</button><div class="sub">${p.pos} · ${p.team} ${oppTxt(p)}</div></td>
+  <td class="num"><b>${p.proj}</b></td><td class="num sub">${p.floor}–${p.ceil}</td>
+  <td>${g?`<span class="chip g-${g}">${g}</span>`:""}</td><td><span class="trend ${t.cls}">${t.txt}</span></td><td class="num">${p.implied??"–"}</td><td>${statusTag(p)}</td>${extra}`;}
+const FHEAD=`<th>Player</th><th class="num">Proj</th><th class="num">Range</th><th>Matchup</th><th>Usage</th><th class="num">Team pts</th><th>Status</th>`;
+const SLOTS=[["QB",["QB"]],["RB",["RB"]],["RB",["RB"]],["WR",["WR"]],["WR",["WR"]],["TE",["TE"]],["W/R/T",["WR","RB","TE"]]];
+function bestLineup(ids){const pool=ids.map(fp).filter(Boolean).sort((a,b)=>b.proj-a.proj);const used=new Set();const out=[];
+  for(const [slot,ok] of SLOTS){const p=pool.find(x=>!used.has(x.id)&&ok.includes(x.pos));if(p)used.add(p.id);out.push({slot,p});}
+  return{starters:out,bench:pool.filter(x=>!used.has(x.id))};}
+function addBox(id,label,btn){return `<div class="addrow"><label for="${id}" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase">${label}</label><input type="search" id="${id}" list="fplayers" placeholder="Type a player's name"><button class="btn primary" data-add="${id}">${btn}</button></div>`;}
+function renderFantasy(){
+  $("#ftitle").textContent=`Fantasy · Week ${D.week} · Half-PPR`;
+  document.querySelectorAll("#fnav button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.fv===state.fv));
+  const v=state.fv;let h="";
+  if(!F.length){$("#fview").innerHTML='<p class="sub">Fantasy data will appear after the next refresh.</p>';return;}
+  if(v==="team"){
+    h=addBox("addmine","Add to my team","Add");
+    if(!state.myTeam.length)h+='<div class="panel"><p class="sub">Your team is empty. Type each player on your Yahoo roster above and tap Add. Overlay saves the list on this device and picks your best lineup every week.</p></div>';
+    else{const L=bestLineup(state.myTeam);const total=L.starters.reduce((s,x)=>s+(x.p?.proj||0),0);
+      h+=`<div class="tablebox"><table><thead><tr><th>Slot</th>${FHEAD}<th></th></tr></thead><tbody>`+
+        L.starters.map(x=>x.p?`<tr><td class="slot">${x.slot}</td>${fRow(x.p,`<td><button class="x" data-rmine="${esc(x.p.id)}" aria-label="Remove">✕</button></td>`)}</tr>`:`<tr><td class="slot">${x.slot}</td><td colspan="8" class="sub">Empty. Add a ${x.slot==="W/R/T"?"WR, RB or TE":x.slot}.</td></tr>`).join("")+
+        L.bench.map(p=>`<tr class="bench"><td class="slot">BN</td>${fRow(p,`<td><button class="x" data-rmine="${esc(p.id)}" aria-label="Remove">✕</button></td>`)}</tr>`).join("")+
+        `</tbody></table></div><p class="sub" style="margin-top:8px">Suggested starters project <b>${total.toFixed(1)}</b> points. Lineup: QB, 2 RB, 2 WR, TE and one W/R/T flex (Yahoo's default; kicker and defense not included). For close calls, open Start / sit.</p>`;}
+  }
+  if(v==="cmp"){
+    h=addBox("addcmp","Compare","Add");
+    if(state.myTeam.length)h+=`<p class="sub" style="margin:-4px 0 12px">Or tap from your team: ${state.myTeam.map(fp).filter(Boolean).map(p=>`<button class="linkbtn" data-cmpadd="${esc(p.id)}">${esc(p.name)}</button>`).join(" · ")}</p>`;
+    const ps=state.cmp.map(fp).filter(Boolean);
+    if(ps.length<2)h+='<div class="panel"><p class="sub">Add two to four players to compare them side by side.</p></div>';
+    const best=ps.length?ps.reduce((a,b)=>a.proj>=b.proj?a:b):null;
+    if(ps.length){h+=`<div class="cmpgrid">`+ps.map(p=>{const g=fgrade(p),t=fTrend(p);return `<div class="cmpcard ${ps.length>1&&p===best?"win":""}">
+      <div style="display:flex;justify-content:space-between;gap:8px"><div style="min-width:0"><button class="linkbtn" data-fid="${esc(p.id)}">${esc(p.name)}</button><div class="sub">${p.pos} · ${p.team} ${oppTxt(p)}</div></div><button class="x" data-rcmp="${esc(p.id)}" aria-label="Remove">✕</button></div>
+      <div class="big">${p.proj}</div><div class="sub">Range ${p.floor}–${p.ceil} · season avg ${p.avg}</div>
+      <div class="kv"><span>Matchup</span><span>${g?`<span class="chip g-${g}">${g}</span> #${p.matchRank} vs ${p.pos}`:"Bye"}</span></div>
+      <div class="kv"><span>Usage</span><span class="trend ${t.cls}">${t.txt}</span></div>
+      <div class="kv"><span>Team implied pts</span><span>${p.implied??"–"}</span></div>
+      <div class="kv"><span>Status</span><span>${statusTag(p)||"Healthy"}</span></div>
+      ${p.teammateOut.length?`<div class="why">Teammate out: ${esc(p.teammateOut.join(", "))}</div>`:""}</div>`;}).join("")+`</div>`;
+      if(ps.length>1){const sorted=[...ps].sort((a,b)=>b.proj-a.proj);const gap=sorted[0].proj-sorted[1].proj;const close=gap<1.5;
+        h+=`<div class="verdict ${close?"mid":"good"}" style="margin-top:12px"><strong>${close?"Coin flip":"Start "+esc(sorted[0].name)}</strong>${close?`Only ${gap.toFixed(1)} points apart. Go with the higher ceiling (${esc(ps.reduce((a,b)=>a.ceil>=b.ceil?a:b).name)}) if you need a big week, or the higher floor (${esc(ps.reduce((a,b)=>a.floor>=b.floor?a:b).name)}) if you're favored.`:`Projects ${gap.toFixed(1)} points more than ${esc(sorted[1].name)}.`}</div>`;}
+    }
+  }
+  if(v==="rank"){
+    h=`<div class="controls"><label for="rpos">Position<select id="rpos"><option value="">All (flex)</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option></select></label></div>`;
+    const list=F.filter(p=>p.opp&&(!state.rpos||p.pos===state.rpos)&&(state.rpos||p.pos!=="QB")).slice(0,60);
+    h+=`<div class="tablebox"><table><thead><tr><th class="num">#</th>${FHEAD}<th></th></tr></thead><tbody>`+list.map((p,i)=>`<tr><td class="num">${i+1}</td>${fRow(p,`<td>${state.myTeam.includes(p.id)?'<span class="sub">On team</span>':`<button class="x" data-addmine="${esc(p.id)}">+ Team</button>`}</td>`)}</tr>`).join("")+`</tbody></table></div>`;
+  }
+  if(v==="wire"){
+    const sl=D.fantasy.sleeper||{};
+    const hide=new Set([...state.myTeam,...(state.showRost?[]:state.rostered)]);
+    const cand=F.filter(p=>!hide.has(p.id)&&p.opp!==undefined).map(p=>{const t=fTrend(p);const reasons=[];let sc=0;
+      if(t.cls==="up"&&p.pos!=="QB"){reasons.push(`Role growing ${t.txt.replace("▲ ","")}`);sc+=Math.min(t.d,1.5)*10;}
+      const sn=p.snaps.filter(x=>x!=null);if(sn.length>=3){const a=(sn.at(-1)+sn.at(-2))/2,b=sn.slice(0,-2).reduce((x,y)=>x+y,0)/(sn.length-2);if(a-b>=.12){reasons.push(`Snaps up to ${Math.round(a*100)}%`);sc+=(a-b)*30;}}
+      if(p.teammateOut.length&&p.pos!=="QB"){reasons.push(`${p.teammateOut[0]} out`);sc+=6;}
+      if(p.adds>=1000){reasons.push(`${(p.adds/1000).toFixed(p.adds>=10000?0:1)}k Sleeper adds`);sc+=Math.min(12,Math.log10(p.adds)*3);}
+      if(p.pos==="QB"&&p.status!=="Out"&&t.cls==="up"&&p.adds>=1000){sc+=2;}
+      return{p,reasons,sc};}).filter(x=>x.reasons.length&&x.p.avg<16&&x.p.status!=="Out").sort((a,b)=>b.sc-a.sc||b.p.proj-a.p.proj).slice(0,30);
+    h=`<div class="banner"><b>Yahoo doesn't share roster data with Overlay,</b> so this list can't tell who's already taken in your league. Tap <b>Taken</b> on anyone rostered to hide him. ${sl.ok?"Sleeper adds show who other fantasy players are grabbing this week.":"Sleeper trending adds will appear after the next GitHub refresh."}</div>
+      <div class="controls"><label class="chk" for="showrost"><input type="checkbox" id="showrost" ${state.showRost?"checked":""}> Show players I marked taken (${state.rostered.length})</label></div>`;
+    h+=cand.length?`<div class="tablebox"><table><thead><tr>${FHEAD}<th>Why</th><th></th></tr></thead><tbody>`+cand.map(x=>`<tr>${fRow(x.p,`<td>${x.reasons.map(r=>`<span class="reason">${esc(r)}</span>`).join("")}</td><td style="white-space:nowrap"><button class="x" data-addmine="${esc(x.p.id)}">+ Team</button> <button class="x" data-taken="${esc(x.p.id)}">${state.rostered.includes(x.p.id)?"Untake":"Taken"}</button></td>`)}</tr>`).join("")+`</tbody></table></div>`
+      :'<div class="panel"><p class="sub">No rising players found. Check back after the next refresh.</p></div>';
+  }
+  $("#fview").innerHTML=h;
+  const rp=$("#rpos");if(rp){rp.value=state.rpos;rp.onchange=e=>{state.rpos=e.target.value;save();renderFantasy();};}
+  const sr=$("#showrost");if(sr)sr.onchange=e=>{state.showRost=e.target.checked;save();renderFantasy();};
+  document.querySelectorAll("#fview input[list]").forEach(i=>i.addEventListener("keydown",e=>{if(e.key==="Enter")document.querySelector(`[data-add="${i.id}"]`).click();}));
+}
+function addFromBox(boxId){const i=$("#"+boxId);const id=FBYNAME[i.value]||(F.find(p=>p.name.toLowerCase()===i.value.trim().toLowerCase())||{}).id;
+  if(!id){toast("Pick a name from the list");return;}
+  if(boxId==="addmine"){if(!state.myTeam.includes(id))state.myTeam.push(id);toast(`Added ${fp(id).name}`);}
+  else{if(state.cmp.length>=4){toast("Compare up to 4 players");return;}if(!state.cmp.includes(id))state.cmp.push(id);}
+  save();renderFantasy();const n=$("#"+boxId);if(n)n.focus();}
+function openFantasy(id){const p=fp(id);if(!p)return;const g=fgrade(p);const t=fTrend(p);
+  const pi=PID[p.id];const propLink=pi!==undefined?`<button class="btn" data-pi="${pi}" data-ki="0" data-switch="1">Open prop view</button>`:"";
+  const usage=p.opp_log.map((u,i)=>`<tr><td>Wk ${p.log[i]?.wk??"–"}</td><td>${pctf(p.snaps[i])}</td><td>${u}</td><td>${p.log[i]?.v??"–"}</td></tr>`).join("");
+  $("#sheet").innerHTML=`<div class="sheethead"><div><h2>${esc(p.name)}</h2><div class="sub">${p.pos} · ${NAMES[p.team]||p.team} ${p.opp?(GAME[p.game]?.home===p.team?"vs ":"@ ")+NAMES[p.opp]+" · "+kick(GAME[p.game]):"· Bye week"}</div></div><button class="close" id="closebtn">Close</button></div>
+   ${p.status?`<p>${statusTag(p)} on the latest injury report.</p>`:""}
+   <div class="stats"><div class="stat"><span>Half-PPR proj</span><b>${p.proj}</b></div><div class="stat"><span>Range</span><b>${p.floor}–${p.ceil}</b></div><div class="stat"><span>Season avg</span><b>${p.avg}</b></div></div>
+   ${p.opp?`<div class="verdict ${g==="A"||g==="B"?"good":g==="C"?"mid":"bad"}"><strong>${g} fantasy matchup</strong>${NAMES[p.opp]} allows ${p.matchAllowed} half-PPR points a game to ${p.pos}s (rank ${p.matchRank} of 32, where 32 allows the most; league average ${D.fantasy.leagueAllowed[p.pos]}). ${NAMES[p.team]} is expected to score ${p.implied??"–"} points.</div>`:""}
+   <div class="sec">Half-PPR points by game</div>${bars(p.log.slice(-6),p.avg,"Season avg "+p.avg,"Fantasy points by game")}
+   <div class="sec">Usage by game</div><div style="overflow-x:auto"><table class="mini"><thead><tr><th>Game</th><th>Snaps</th><th>${p.pos==="QB"?"Pass att":p.pos==="RB"?"Carries + targets":"Targets"}</th><th>Points</th></tr></thead><tbody>${usage}</tbody></table></div>
+   ${p.teammateOut.length?`<div class="sec">Teammates out</div><p class="sub">${esc(p.teammateOut.join(", "))} ${p.teammateOut.length>1?"are":"is"} out, which can open up work for ${esc(p.name)}.</p>`:""}
+   ${p.adds||p.drops?`<div class="sec">Sleeper, last 48 hours</div><p class="sub">${p.adds.toLocaleString()} adds · ${p.drops.toLocaleString()} drops</p>`:""}
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">${state.myTeam.includes(p.id)?"":`<button class="btn primary" data-addmine="${esc(p.id)}">Add to my team</button>`}<button class="btn" data-cmpadd="${esc(p.id)}">Compare</button>${propLink}</div>`;
+  $("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;$("#closebtn").onclick=closeSheet;$("#closebtn").focus();}
+$("#fplayers").innerHTML=F.map(p=>`<option value="${esc(`${p.name} (${p.pos}, ${p.team})`)}"></option>`).join("");
+$("#fnav").addEventListener("click",e=>{const b=e.target.closest("button[data-fv]");if(b){state.fv=b.dataset.fv;save();renderFantasy();}});
+
 // ---------- wiring ----------
 $("#weeklabel").textContent=`NFL ${D.season} · WEEK ${D.week} · PRIZEPICKS`;
 const injWeek=Math.max(0,...Object.values(D.injuries).flat().map(x=>x.week));
@@ -482,7 +611,7 @@ $("#linesbanner").innerHTML=HAS_LINES?`<b>PrizePicks lines loaded.</b> Edge = sh
  `<b>Live PrizePicks lines aren't connected yet.</b> Open a player and type in the line from the app to check it.${injWeek<D.week?` Injury statuses are from the Week ${injWeek} report until Week ${D.week} reports come out midweek.`:""}`;
 $("#sliplabel").hidden=!HAS_LINES;
 $("#updated").textContent="Updated "+new Date(D.generated).toLocaleString("en-US",{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+".";
-const TABS=["match","slip","defense","games"];
+const TABS=["match","slip","fantasy","defense","games"];
 function setTab(t){if(!TABS.includes(t))t="match";state.tab=t;save();document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));TABS.forEach(id=>$("#"+id).hidden=id!==t);}
 document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
 [...new Set(ROWS.map(r=>r.pr.stat))].forEach(m=>$("#mkt").insertAdjacentHTML("beforeend",`<option>${m}</option>`));
@@ -493,10 +622,17 @@ $("#sliptype").value=String(state.be);$("#sliptype").onchange=e=>{state.be=+e.ta
 $("#q").oninput=e=>{state.q=e.target.value;renderMatch();};
 document.addEventListener("click",e=>{
   const st=e.target.closest(".star");if(st){e.stopPropagation();toggleWatch(st.dataset.w);return;}
+  const fb=e.target.closest("[data-fid]");if(fb){openFantasy(fb.dataset.fid);return;}
+  const ad=e.target.closest("[data-add]");if(ad){addFromBox(ad.dataset.add);return;}
+  const am=e.target.closest("[data-addmine]");if(am){const id=am.dataset.addmine;if(!state.myTeam.includes(id))state.myTeam.push(id);save();renderFantasy();toast(`Added ${fp(id).name} to your team`);if(!$("#sheet").hidden)openFantasy(id);return;}
+  const rmn=e.target.closest("[data-rmine]");if(rmn){state.myTeam=state.myTeam.filter(x=>x!==rmn.dataset.rmine);save();renderFantasy();return;}
+  const ca=e.target.closest("[data-cmpadd]");if(ca){const id=ca.dataset.cmpadd;if(!state.cmp.includes(id)){if(state.cmp.length>=4){toast("Compare up to 4 players");return;}state.cmp.push(id);}state.fv="cmp";save();renderFantasy();if(!$("#sheet").hidden){closeSheet();setTab("fantasy");}toast(`Comparing ${state.cmp.length} player${state.cmp.length>1?"s":""}`);return;}
+  const rc=e.target.closest("[data-rcmp]");if(rc){state.cmp=state.cmp.filter(x=>x!==rc.dataset.rcmp);save();renderFantasy();return;}
+  const tk=e.target.closest("[data-taken]");if(tk){const id=tk.dataset.taken;state.rostered=state.rostered.includes(id)?state.rostered.filter(x=>x!==id):[...state.rostered,id];save();renderFantasy();return;}
   const rm=e.target.closest("[data-rm]");if(rm){state.legs.splice(+rm.dataset.rm,1);save();renderSlip();return;}
   const t=e.target.closest("tr.click,.linkbtn,[data-switch]");if(t&&t.dataset.pi!==undefined){openPlayer(+t.dataset.pi,+t.dataset.ki);return;}
   const g=e.target.closest(".game");if(g){state.game=g.dataset.g;save();renderGames();}
 });
 $("#matchbody").addEventListener("keydown",e=>{if(e.key==="Enter"){const r=e.target.closest("tr.click");if(r)openPlayer(+r.dataset.pi,+r.dataset.ki);}});
-renderMatch();renderSlip();renderHeat();renderGames();setTab(state.tab);
+renderMatch();renderSlip();renderFantasy();renderHeat();renderGames();setTab(state.tab);
 </script>

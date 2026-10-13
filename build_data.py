@@ -54,6 +54,7 @@ def build(week=None, local_dir=None):
     except Exception: snaps = pd.DataFrame(columns=["player", "team", "week", "offense_pct"])
     for c in ["passing_yards", "rushing_yards", "receiving_yards", "receptions", "attempts", "carries", "targets", "target_share"]:
         stats[c] = stats[c].fillna(0)
+    stats["half"] = (stats.fantasy_points.fillna(0) + stats.fantasy_points_ppr.fillna(0)) / 2
     stats["u"] = stats.apply(lambda r: r.attempts if r.position == "QB" else (r.carries + r.targets if r.position == "RB" else r.targets), axis=1)
     team_carries = stats.groupby(["team", "week"]).carries.sum()
     stats["carry_share"] = [c / team_carries.get((t, w), 0) if team_carries.get((t, w), 0) else 0 for c, t, w in zip(stats.carries, stats.team, stats.week)]
@@ -82,6 +83,14 @@ def build(week=None, local_dir=None):
                     "avg": round(float(avg[team]), 1), "rank": int(rank[team]), "n": int(len(avg)),
                     "last": [{"wk": int(w), "v": round(float(v), 1)} for w, v in zip(last.week, last[col])],
                 }
+
+    # ---- half-PPR fantasy points each defense allows to each position ----
+    defense_fp, league_fp = {}, {}
+    for pos in ["QB", "RB", "WR", "TE"]:
+        per_game = stats[stats.position == pos].groupby(["opponent_team", "week"]).half.sum().reset_index()
+        avg = per_game.groupby("opponent_team").half.mean(); rank = avg.rank(method="min").astype(int)
+        league_fp[pos] = round(float(avg.mean()), 1)
+        for t in avg.index: defense_fp.setdefault(t, {})[pos] = {"avg": round(float(avg[t]), 1), "rank": int(rank[t])}
 
     # ---- latest injury report per team ----
     injuries = {}
@@ -190,13 +199,86 @@ def build(week=None, local_dir=None):
         opp, gid = games_by_team[r.cur]
         players.append(make_player(r.player_id, r.position, r.cur, opp, gid)); tracked.add(nm)
 
+    fantasy = build_fantasy(stats, games, wk, week, defense_fp, league_fp, status_of, absences, snap_pct)
+
     return {
+        "fantasy": fantasy,
         "generated": datetime.now(timezone.utc).isoformat(timespec="minutes"),
         "season": SEASON, "week": week, "statsThrough": played_through,
         "games": games_out, "league": league, "defense": defense, "injuries": injuries,
         "absences": absences, "players": players,
         **odds,
     }
+
+
+# ---------------- fantasy (half-PPR) ----------------
+def sleeper_trending():
+    """Sleeper's free trending adds/drops (last 48h), keyed by name+team. Works on GitHub; skipped where Sleeper is unreachable."""
+    try:
+        def get(u):
+            with urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "overlay"}), timeout=90) as r:
+                return json.loads(r.read())
+        players = get("https://api.sleeper.app/v1/players/nfl")
+        adds = get("https://api.sleeper.app/v1/players/nfl/trending/add?lookback_hours=48&limit=200")
+        drops = get("https://api.sleeper.app/v1/players/nfl/trending/drop?lookback_hours=48&limit=200")
+        out = {}
+        for kind, rows in (("adds", adds), ("drops", drops)):
+            for r in rows:
+                pl = players.get(str(r["player_id"]))
+                if not pl or not pl.get("full_name"): continue
+                out.setdefault(key(pl["full_name"]), {})[kind] = int(r["count"])
+        return {"ok": True, "players": out}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"[:200], "players": {}}
+
+
+def build_fantasy(stats, games, wk, week, defense_fp, league_fp, status_of, absences, snap_pct):
+    team_pts = {}
+    for g in games[games.result.notna() & (games.week < week)].itertuples():
+        team_pts.setdefault(g.home_team, []).append(g.home_score); team_pts.setdefault(g.away_team, []).append(g.away_score)
+    team_avg = {t: sum(v) / len(v) for t, v in team_pts.items()}
+    opp_of, imp_of, game_of = {}, {}, {}
+    for g in wk.itertuples():
+        opp_of[g.away_team], opp_of[g.home_team] = g.home_team, g.away_team
+        game_of[g.away_team] = game_of[g.home_team] = g.game_id
+        if not pd.isna(g.spread_line) and not pd.isna(g.total_line):
+            imp_of[g.home_team] = g.total_line / 2 + g.spread_line / 2; imp_of[g.away_team] = g.total_line / 2 - g.spread_line / 2
+    trending = sleeper_trending()
+    out = []
+    pool = stats[stats.position.isin(["QB", "RB", "WR", "TE"])]
+    for pid, logs in pool.groupby("player_id"):
+        logs = logs.sort_values("week"); team = logs.cur.iloc[-1]; pos = logs.position.iloc[-1]; name = logs.player_display_name.iloc[-1]
+        fp = logs.half.astype(float)
+        if fp.mean() < 3 and logs.u.iloc[-1] < 4: continue
+        base = 0.5 * fp.mean() + 0.5 * fp.tail(3).mean()
+        opp = opp_of.get(team); status = status_of.get((key(name), team), "")
+        if opp:
+            d = defense_fp.get(opp, {}).get(pos)
+            mf = min(1.2, max(0.8, (d["avg"] / league_fp[pos]) ** 0.5)) if d else 1.0
+            ef = min(1.15, max(0.85, (imp_of[team] / team_avg[team]) ** 0.4)) if team in imp_of and team_avg.get(team) else 1.0
+            proj = base * mf * ef
+            if status in ("Out",): proj = 0.0
+            elif status == "Doubtful": proj *= 0.25
+        else:
+            d, proj = None, 0.0
+        sd = max(float(fp.std()) if len(fp) > 1 else 0, 0.35 * base)
+        u = logs.u.astype(float).tolist()
+        rise = (sum(u[-2:]) / len(u[-2:]) - sum(u[:-2]) / len(u[:-2])) if len(u) >= 3 else 0.0
+        snaps = [snap_pct.get((key(name), team, int(w))) for w in logs.week]
+        tr = trending["players"].get(key(name), {})
+        out.append({
+            "id": pid, "name": name, "pos": pos, "team": team, "opp": opp, "game": game_of.get(team), "status": status,
+            "proj": round(proj, 1), "floor": round(max(0, proj - 0.8 * sd), 1) if opp else 0, "ceil": round(proj + 0.8 * sd, 1) if opp else 0,
+            "avg": round(float(fp.mean()), 1), "games": int(len(fp)),
+            "matchRank": d["rank"] if d else None, "matchAllowed": d["avg"] if d else None,
+            "implied": r1(imp_of.get(team)), "log": [{"wk": int(w), "v": round(float(v), 1)} for w, v in zip(logs.week, fp)],
+            "opp_log": [int(x) for x in u], "snaps": [r3(x) for x in snaps], "rise": round(rise, 1),
+            "adds": tr.get("adds", 0), "drops": tr.get("drops", 0),
+            "teammateOut": [a["name"] for a in absences.get(team, []) if a["pid"] != pid and ((a["tgt"] or 0) >= 4 or (a["car"] or 0) >= 8 or a["pos"] == "QB")],
+        })
+    out.sort(key=lambda x: -x["proj"])
+    return {"players": out, "leagueAllowed": league_fp, "defense": defense_fp,
+            "sleeper": {"ok": trending["ok"], "error": trending.get("error")}}
 
 
 # ---------------- The Odds API (optional, needs free key) ----------------
@@ -221,15 +303,26 @@ def _get(url):
         return None
 
 
+PREV_PATH = None  # previous data.json, so runs without odds keep the last lines for the same week
+
+
 def odds_block(wk, players):
     if not os.environ.get("ODDS_API_KEY"):
+        try:
+            prev = json.load(open(PREV_PATH)) if PREV_PATH and os.path.exists(PREV_PATH) else {}
+            if prev.get("lines") and prev.get("week") == int(wk.week.iloc[0]):
+                o = dict(prev.get("odds") or {}); o["status"] = "carried over"
+                o["fetched"] = o.get("fetched") or prev.get("generated")
+                return {"lines": prev["lines"], "odds": o}
+        except Exception as e:
+            print("could not reuse previous lines:", e, file=sys.stderr)
         return {"lines": [], "odds": {"status": "no key"}}
     try:
         lines = fetch_lines(wk, players)
         status = "ok" if lines else ("error" if ODDS_STATUS["errors"] else "no lines yet")
     except Exception as e:
         lines, status = [], "error"; ODDS_STATUS["errors"].append(f"{type(e).__name__}: {e}"[:300])
-    return {"lines": lines, "odds": {"status": status, **ODDS_STATUS, "errors": ODDS_STATUS["errors"][:5]}}
+    return {"lines": lines, "odds": {"status": status, "fetched": datetime.now(timezone.utc).isoformat(timespec="minutes"), **ODDS_STATUS, "errors": ODDS_STATUS["errors"][:5]}}
 
 
 def fetch_lines(wk, players):
@@ -257,6 +350,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--week", type=int); ap.add_argument("--out", default="data.json"); ap.add_argument("--local")
     a = ap.parse_args()
+    PREV_PATH = a.out
     d = build(a.week, a.local)
     with open(a.out, "w") as f: json.dump(d, f, separators=(",", ":"))
     print(f"week {d['week']}: {len(d['games'])} games, {len(d['players'])} players, {len(d['lines'])} lines -> {a.out}")
