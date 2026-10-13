@@ -17,6 +17,6 @@ NFL prop matchup tool for PrizePicks. Free stack:
 Your site is at `https://<your-username>.github.io/overlay/`.
 
 ## Odds credits
-Each props refresh costs about 4 credits per game (4 prop markets; up to 10 bookmakers in one call count as one region),
-so ~56 credits for a full slate. Two odds runs a week is ~480 credits a month, just inside the free 500.
-Manual runs also use credits, so keep those occasional, or move to the $30 plan later.
+Each odds refresh costs about 4 credits per game (~55 for a full slate). Fresh lines are pulled only on the
+Sunday-morning run (~240 credits a month, inside the free 500). Every other run keeps the last lines.
+For an extra pull (say, before a Thursday game): Actions → "Refresh Overlay data" → Run workflow → tick the odds box.
