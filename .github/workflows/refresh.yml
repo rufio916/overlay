@@ -21,10 +21,19 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install pandas
-      - run: python build_data.py --out data.json
+      - name: Build data (fresh odds only Sat/Sun mornings, or a manual run with the odds box ticked)
         env:
-          # fresh odds only on Sat/Sun runs (and manual runs with the box ticked); other runs keep the last lines
-          ODDS_API_KEY: ${{ ((github.event_name == 'workflow_dispatch' && format('{0}', github.event.inputs.odds) != 'true') || github.event.schedule == '0 15 * * 3' || github.event.schedule == '0 15 * * 5') && '' || secrets.ODDS_API_KEY }}
+          KEY: ${{ secrets.ODDS_API_KEY }}
+          EVENT: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+          WANT_ODDS: ${{ github.event.inputs.odds }}
+        run: |
+          FETCH=0
+          if [ "$EVENT" = "schedule" ] && { [ "$CRON" = "0 15 * * 6" ] || [ "$CRON" = "0 15 * * 0" ]; }; then FETCH=1; fi
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$WANT_ODDS" = "true" ]; then FETCH=1; fi
+          echo "fetch odds: $FETCH"
+          if [ "$FETCH" = "1" ]; then export ODDS_API_KEY="$KEY"; fi
+          python build_data.py --out data.json
       - run: python assemble.py index.html
       - run: |
           git config user.name "overlay-bot"
