@@ -4,7 +4,7 @@ NFL prop matchup tool for PrizePicks. Free stack:
 
 - **nflverse** (free, no key): schedule, weekly player stats, injury reports
 - **The Odds API** free tier (500 credits/month): PrizePicks lines + sharp book prices. Optional; the site works without it.
-- **GitHub Actions** (free): refreshes stats and injuries Wed and Fri, and adds PrizePicks lines Sat and Sun mornings
+- **GitHub Actions** (free): refreshes stats and injuries daily and PrizePicks lines on Saturday mornings
 - **GitHub Pages** (free): hosts the site at a link you can send friends
 
 ## Setup (one time, ~10 minutes)
@@ -16,7 +16,8 @@ NFL prop matchup tool for PrizePicks. Free stack:
 
 Your site is at `https://<your-username>.github.io/overlay/`.
 
-## Odds credits
-Each odds refresh costs about 4 credits per game (~55 for a full slate). Fresh lines are pulled only on the
-Sunday-morning run (~240 credits a month, inside the free 500). Every other run keeps the last lines.
-For an extra pull (say, before a Thursday game): Actions → "Refresh Overlay data" → Run workflow → tick the odds box.
+## Schedule and odds credits
+- Every day ~5pm Pacific: stats and injury reports (free).
+- Saturday ~10am Pacific: fresh PrizePicks + sportsbook lines (~55 of the 500 free monthly Odds API credits).
+- All other runs keep the last lines. For an extra pull: Actions → "Refresh Overlay data" → Run workflow → tick the odds box.
+GitHub's scheduled runs can start a few hours late when GitHub is busy.
