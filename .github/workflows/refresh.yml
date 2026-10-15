@@ -2,8 +2,8 @@ name: Refresh Overlay data
 on:
   schedule:
     - cron: "17 0 * * *"     # every day ~5:17pm Pacific: stats + injury reports (free, no odds credits)
-    - cron: "17 17 * * 6"    # Saturday ~10:17am Pacific: fresh PrizePicks + sportsbook lines (~55 credits)
-    - cron: "17 13 * * 0"    # Sunday ~6:17am Pacific: game-day PrizePicks + sportsbook lines (~50 credits)
+    - cron: "17 17 * * 4"    # Thursday ~10:17am Pacific: PrizePicks + sportsbook lines before TNF (~55 credits)
+    - cron: "17 17 * * 6"    # Saturday ~10:17am Pacific: PrizePicks + sportsbook lines for Sun/Mon (~50 credits)
   workflow_dispatch:           # "Run workflow" button for a manual refresh
     inputs:
       odds:
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install pandas
-      - name: Build data (fresh odds Saturday + Sunday mornings, or a manual run with the odds box ticked)
+      - name: Build data (fresh odds Thursday + Saturday mornings, or a manual run with the odds box ticked)
         env:
           KEY: ${{ secrets.ODDS_API_KEY }}
           EVENT: ${{ github.event_name }}
@@ -28,8 +28,10 @@ jobs:
           WANT_ODDS: ${{ github.event.inputs.odds }}
         run: |
           FETCH=0
-          if [ "$EVENT" = "schedule" ] && { [ "$CRON" = "17 17 * * 6" ] || [ "$CRON" = "17 13 * * 0" ]; }; then FETCH=1; fi
+          if [ "$EVENT" = "schedule" ] && { [ "$CRON" = "17 17 * * 4" ] || [ "$CRON" = "17 17 * * 6" ]; }; then FETCH=1; fi
           if [ "$EVENT" = "workflow_dispatch" ] && [ "$WANT_ODDS" = "true" ]; then FETCH=1; fi
+          # one-off skips to stay inside the monthly credits (UTC dates); remove dates once they pass
+          for d in 2026-10-15; do if [ "$EVENT" = "schedule" ] && [ "$(date -u +%F)" = "$d" ]; then FETCH=0; echo "odds skipped for $d"; fi; done
           echo "fetch odds: $FETCH"
           if [ "$FETCH" = "1" ]; then export ODDS_API_KEY="$KEY"; fi
           python build_data.py --out data.json

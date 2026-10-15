@@ -398,7 +398,7 @@ LOCAL_DIR = None
 PREV_PATH = None  # previous data.json, so runs without odds keep the last lines for the same week
 
 
-MIN_CREDITS = 70  # don't start a pull unless at least this many credits are left (a full slate costs ~55-65)
+CREDITS_PER_GAME = 4  # one credit per stat type per game; passing up to 10 books counts once
 
 
 def _carry_over(wk, status):
@@ -429,7 +429,10 @@ def _credits_left_guess():
 def odds_block(wk, players):
     if os.environ.get("ODDS_API_KEY"):
         left = _credits_left_guess()
-        if left is not None and left < MIN_CREDITS:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        cost = CREDITS_PER_GAME * int((wk.gameday >= today).sum())  # games already played aren't pulled
+        print(f"odds pull estimate: ~{cost} credits; credits left: {left if left is not None else 'unknown (new month)'}", file=sys.stderr)
+        if left is not None and left < cost + 2:
             print(f"only {left} odds credits left; keeping last lines until the monthly reset", file=sys.stderr)
             return _carry_over(wk, "skipped: low credits") or {"lines": [], "odds": {"status": "skipped: low credits", "remaining": left}}
     if not os.environ.get("ODDS_API_KEY"):
