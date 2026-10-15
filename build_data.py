@@ -29,8 +29,9 @@ MARKETS = {
     "TE": [("Rec Yds", "receiving_yards", "player_reception_yds"), ("Receptions", "receptions", "player_receptions")],
 }
 TAKE = {"QB": 1, "RB": 2, "WR": 3, "TE": 1}  # top players per team by usage
-SHARP_BOOKS = ["pinnacle", "fanduel", "draftkings"]  # priority order for the fair price
-DFS_BOOKS = ["prizepicks", "underdog"]
+# Up to 10 bookmakers in one request cost the same as 1, so we use exactly 10.
+SHARP_BOOKS = ["pinnacle", "fanduel", "draftkings", "betmgm", "espnbet", "betrivers", "bovada"]  # sportsbooks for the consensus
+DFS_BOOKS = ["prizepicks", "underdog", "pick6"]  # pick'em apps you'd actually play
 SKILL = {"QB", "RB", "WR", "TE"}
 
 
@@ -461,7 +462,7 @@ def odds_block(wk, players):
     try:  # remember the previous pull from the same week so the page can show line movement
         prev = json.load(open(PREV_PATH)) if PREV_PATH and os.path.exists(PREV_PATH) else {}
         if prev.get("lines") and prev.get("week") == int(wk.week.iloc[0]):
-            keep = set(SHARP_BOOKS + ["prizepicks"])
+            keep = set(SHARP_BOOKS + DFS_BOOKS)
             out["linesPrev"] = [l for l in prev["lines"] if l["book"] in keep]
             out["oddsPrev"] = {"fetched": (prev.get("odds") or {}).get("fetched") or prev.get("generated")}
     except Exception as e:

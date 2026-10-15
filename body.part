@@ -109,6 +109,7 @@ details.inj summary{cursor:pointer;font-size:11px;font-weight:600;letter-spacing
 }
 .mv{font-family:var(--mono);font-size:11px;white-space:nowrap}
 .mv.up{color:var(--pos)} .mv.dn{color:var(--neg)} .mv.flat{color:var(--muted)}
+table.shop tr.bestline td{background:var(--pos-soft)}
 .propchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .propchip{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--raised);color:var(--fg);border-radius:6px;padding:5px 8px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
 .propchip:hover{border-color:var(--accent)}
@@ -157,7 +158,7 @@ details.ginj summary::-webkit-details-marker{display:none}
     <div class="tablebox"><table><thead id="matchhead"></thead><tbody id="matchbody"></tbody></table></div>
     <div class="cards" id="matchcards"></div>
     <details class="info"><summary>How to read this</summary>
-      <p><b>Hit chance</b> is how likely the sportsbooks (Pinnacle, FanDuel, DraftKings, with their fee removed) think the pick is to hit. It's <b>green</b> when it beats what your slip type needs to break even, about 54% for a 6-pick Flex. "adj" means the book's line was a little different from PrizePicks, so Overlay adjusted it.</p>
+      <p><b>Hit chance</b> is how likely the sportsbooks think the pick is to hit: a blend of up to 7 books (Pinnacle, FanDuel, DraftKings, BetMGM, ESPN Bet, BetRivers, Bovada) with their fee removed, counting the sharpest books most. "Books 73.5" under a line means the sportsbooks' average line is at least a point away from PrizePicks, which is usually where the value is. It's <b>green</b> when it beats what your slip type needs to break even, about 54% for a 6-pick Flex. "adj" means the book's line was a little different from PrizePicks, so Overlay adjusted it.</p>
       <p><b>Our proj</b> is Overlay's own rough estimate from a handful of games. It's a lean, not a price. When it disagrees with the hit chance, trust the hit chance.</p>
       <p><b>▲ / ▼ under a line or hit chance</b> shows how it moved since the previous odds pull (Thursday → Saturday). Lines that move usually follow injury news or sharp money.</p>
       <p><b>Matchup</b> grades how much this defense allows to the position: A allows the most, F the least. Hover or open the player for the numbers.</p>
@@ -229,27 +230,35 @@ function save(){try{localStorage.setItem("overlay-v3",JSON.stringify(state));}ca
 // ---------- odds lines (filled once an Odds API key is added) ----------
 const imp=o=>o<0?(-o)/(-o+100):100/(o+100);
 const norm=s=>String(s||"").toLowerCase().replace(/\b(jr|sr|ii|iii|iv)\b/g,"").replace(/[^a-z]/g,"");
-const SHARP=["pinnacle","fanduel","draftkings"];const LINES={},LINES_PREV={};
+const SHARP=["pinnacle","fanduel","draftkings","betmgm","espnbet","betrivers","bovada"];const LINES={},LINES_PREV={};
 for(const l of D.lines||[]){const k=norm(l.player)+"|"+l.market;(LINES[k]=LINES[k]||[]).push(l);}
 for(const l of D.linesPrev||[]){const k=norm(l.player)+"|"+l.market;(LINES_PREV[k]=LINES_PREV[k]||[]).push(l);}
 const HAS_PREV=(D.linesPrev||[]).length>0;
-const BOOKNAME={pinnacle:"Pinnacle",fanduel:"FanDuel",draftkings:"DraftKings",prizepicks:"PrizePicks",underdog:"Underdog"};
+const BOOKNAME={pinnacle:"Pinnacle",fanduel:"FanDuel",draftkings:"DraftKings",betmgm:"BetMGM",espnbet:"ESPN Bet",betrivers:"BetRivers",bovada:"Bovada",prizepicks:"PrizePicks",underdog:"Underdog",pick6:"DK Pick6"};
+const BOOKW={pinnacle:3,fanduel:1.5,draftkings:1.5,betmgm:1,espnbet:1,betrivers:1,bovada:.5}; // sharper books count more
+const DFS=["prizepicks","underdog","pick6"];
 function sdFor(pr){const k=pr.stat==="Receptions"?.42:pr.stat==="Pass Yds"?.24:.5;
   return Math.max(Math.sqrt(.5*pr.sd*pr.sd+.5*Math.pow(k*Math.max(pr.proj,1),2)),pr.stat==="Receptions"?1:5);}
 function zinv(p){let lo=-8,hi=8;for(let i=0;i<60;i++){const m=(lo+hi)/2;if(cdf(m)<p)lo=m;else hi=m;}return(lo+hi)/2;}
-// Sharp-book market for this prop: no-vig over chance at the book line closest to the target (books in priority order win ties)
-function sharpFor(p,pr,target,M=LINES){const ls=M[norm(p.name)+"|"+pr.market];if(!ls)return null;let best=null;
+// every sportsbook's two-sided line for this prop: no-vig over chance at its own line
+function bookLines(p,pr,M=LINES){const ls=M[norm(p.name)+"|"+pr.market];if(!ls)return[];const out=[];
   for(const b of SHARP){const byLine={};for(const l of ls)if(l.book===b)(byLine[l.line]=byLine[l.line]||{})[l.side]=l.price;
-    for(const [ln,o] of Object.entries(byLine)){if(o.Over==null||o.Under==null)continue;const d=Math.abs(+ln-target);
-      if(!best||d<best.d-1e-9){const a=imp(o.Over),c=imp(o.Under);best={book:b,line:+ln,over:a/(a+c),d};}}}
-  return best;}
-function marketChance(p,pr,line,side,M=LINES){const s=sharpFor(p,pr,line,M);if(!s||s.d>Math.max(3,.12*line))return null;
-  const sd=sdFor(pr);const mu=s.line+sd*zinv(s.over);const over=s.d<1e-9?s.over:1-cdf((line-mu)/sd);
-  return{p:side==="More"?over:1-over,book:s.book,line:s.line,adjusted:s.d>1e-9};}
+    for(const [ln,o] of Object.entries(byLine)){if(o.Over==null||o.Under==null)continue;const a=imp(o.Over),c=imp(o.Under);out.push({book:b,line:+ln,over:o.Over,under:o.Under,fair:a/(a+c)});}}
+  return out;}
+// weighted consensus of all books, each adjusted from its own line to the target line
+function marketChance(p,pr,line,side,M=LINES){const all=bookLines(p,pr,M);if(!all.length)return null;
+  const sd=sdFor(pr),lim=Math.max(3,.12*line);let wsum=0,psum=0;const used=[];
+  for(const b of SHARP){const opts=all.filter(x=>x.book===b);if(!opts.length)continue;
+    const x=opts.reduce((m,o)=>Math.abs(o.line-line)<Math.abs(m.line-line)?o:m);const d=Math.abs(x.line-line);if(d>lim)continue;
+    const over=d<1e-9?x.fair:1-cdf((line-(x.line+sd*zinv(x.fair)))/sd);const w=BOOKW[b]||1;wsum+=w;psum+=w*over;used.push({...x,adjOver:over});}
+  if(!wsum)return null;const over=psum/wsum;
+  const avg=used.reduce((s,x)=>s+x.line,0)/used.length;
+  return{p:side==="More"?over:1-over,n:used.length,books:used,adjusted:used.some(x=>Math.abs(x.line-line)>1e-9),avgLine:Math.round(avg*2)/2,
+    book:used.find(x=>x.book==="pinnacle")?"pinnacle":used[0].book,line:used[0].line};}
 function priceFor(p,pr,M=LINES){const ls=M[norm(p.name)+"|"+pr.market];if(!ls)return null;
   const pp=ls.find(l=>l.book==="prizepicks"&&l.side==="Over");if(!pp)return null;
   const ud=ls.find(l=>l.book==="underdog"&&l.side==="Over");const m=marketChance(p,pr,pp.line,"More",M);
-  return{line:pp.line,ud:ud?.line,fair:m?m.p:null,book:m?.book,from:m?.line,adjusted:m?.adjusted};}
+  return{line:pp.line,ud:ud?.line,fair:m?m.p:null,n:m?.n||0,avgLine:m?.avgLine,adjusted:m?.adjusted,book:m?.book,from:m?.line};}
 const HAS_LINES=(D.lines||[]).length>0;
 
 // ---------- math ----------
@@ -280,6 +289,8 @@ function moveOf(r){if(!r.price||!r.prev)return null;const dl=r.price.line-r.prev
   let dw=null;if(r.win!=null&&r.prev.fair!=null){const pw=r.side==="More"?r.prev.fair:1-r.prev.fair;dw=r.win-pw;}
   if(Math.abs(dl)<.01&&(dw==null||Math.abs(dw)<.01))return null;return{dl,dw,from:r.prev.line};}
 const prevAt=D.oddsPrev&&D.oddsPrev.fetched?new Date(D.oddsPrev.fetched).toLocaleDateString("en-US",{weekday:"short"}):"last pull";
+function booksHint(r){const a=r.price&&r.price.avgLine;if(a==null||Math.abs(a-r.price.line)<1)return"";
+  return `<div class="mv flat" title="Average line across ${r.price.n} sportsbooks">Books ${a}</div>`;}
 function lineMv(m){return m&&Math.abs(m.dl)>=.01?`<div class="mv ${m.dl>0?"up":"dn"}" title="PrizePicks line on ${prevAt}: ${m.from}">${m.dl>0?"▲":"▼"} from ${m.from}</div>`:"";}
 function winMv(m){return m&&m.dw!=null&&Math.abs(m.dw)>=.01?`<div class="mv ${m.dw>0?"up":"dn"}" title="Change in hit chance since ${prevAt}">${m.dw>0?"▲":"▼"}${Math.round(Math.abs(m.dw)*100)} since ${prevAt}</div>`:"";}
 function matchTitle(r){return `${NAMES[r.p.opp]} allows ${r.d.avg} ${r.pr.stat.toLowerCase()} a game to ${r.p.pos}s (rank ${r.d.rank} of 32; league avg ${r.lg})`;}
@@ -297,7 +308,7 @@ function renderMatch(){
   const cols=L?11:9;
   if(!list.length){const msg=state.wonly&&!state.watch.length?"Your watchlist is empty. Tap the star next to any player to add him.":state.moved&&!HAS_PREV?"Line movement shows after the second odds pull of the week (Saturday).":"No players match these filters. Clear a filter to see more.";
     $("#matchbody").innerHTML=`<tr><td colspan="${cols}" class="empty">${msg}</td></tr>`;$("#matchcards").innerHTML=`<div class="panel empty">${msg}</div>`;return;}
-  const edgeTxt=r=>r.e!=null?`<span class="edge ${r.e>0?"hot":"cold"}" title="Sportsbooks give this ${(r.win*100).toFixed(1)}%${r.price.adjusted?" (adjusted from their "+r.price.from+" line)":""}. Your slip needs ${(state.be*100).toFixed(1)}%.">${(r.win*100).toFixed(0)}%</span>${r.price.adjusted?'<span class="sub"> adj</span>':""}`:'<span class="sub">–</span>';
+  const edgeTxt=r=>r.e!=null?`<span class="edge ${r.e>0?"hot":"cold"}" title="Consensus of ${r.price.n} sportsbook${r.price.n>1?"s":""}: ${(r.win*100).toFixed(1)}%${r.price.adjusted?", adjusted to this line":""}. Your slip needs ${(state.be*100).toFixed(1)}%.">${(r.win*100).toFixed(0)}%</span>${r.price.adjusted?'<span class="sub"> adj</span>':""}`:'<span class="sub">–</span>';
   const playTxt=r=>r.side?`<span class="pick ${r.side==="More"?"more":"less"}">${r.side}</span>`:'<span class="sub">Books not posted</span>';
   const stTxt=r=>r.p.status?`<span class="st ${r.p.status}">${r.p.status}</span>`:"";
   const head=r=>`<div class="pname plink">${esc(r.p.name)}</div><div class="sub">${r.p.pos} · ${r.p.team} ${GAME[r.p.game]?.home===r.p.team?"vs":"@"} ${r.p.opp}</div>`;
@@ -307,11 +318,11 @@ function renderMatch(){
     const use=`<td><span class="trend ${t.cls}">${t.txt}</span></td>`;
     const tail=`<td>${stTxt(r)}</td><td class="chev" aria-hidden="true">›</td></tr>`;
     if(L)return `<tr class="click" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}" title="Open full breakdown">${star}<td>${head(r)}</td><td>${r.pr.stat}</td>
-      ${r.price?`<td class="num">${r.price.line}${lineMv(r.mv)}</td><td>${playTxt(r)}</td><td class="num">${edgeTxt(r)}${winMv(r.mv)}</td>`:'<td class="num sub" colspan="3">Not on PrizePicks</td>'}
+      ${r.price?`<td class="num">${r.price.line}${booksHint(r)}${lineMv(r.mv)}</td><td>${playTxt(r)}</td><td class="num">${edgeTxt(r)}${winMv(r.mv)}</td>`:'<td class="num sub" colspan="3">Not on PrizePicks</td>'}
       ${match}${use}<td class="num">${r.pr.proj}</td>${tail}`;
     return `<tr class="click" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}" title="Open full breakdown">${star}<td>${head(r)}</td><td>${r.pr.stat}</td><td class="num">${r.pr.avg}</td><td class="num">${r.pr.proj}</td>${match}${use}${tail}`;}).join("");
   $("#matchcards").innerHTML=list.slice(0,80).map(r=>{const t=trend(r.p,r.pr.stat);
-    const line=r.price?`<span class="bigline">${r.pr.stat} ${r.price.line}</span>${playTxt(r)}${r.e!=null?edgeTxt(r)+'<span class="sub"> to hit</span>':""}${r.mv?`<span class="mv ${(r.mv.dw??r.mv.dl)>0?"up":"dn"}">${Math.abs(r.mv.dl)>=.01?`line ${r.mv.dl>0?"▲":"▼"} from ${r.mv.from}`:`${r.mv.dw>0?"▲":"▼"}${Math.round(Math.abs(r.mv.dw)*100)} since ${prevAt}`}</span>`:""}`:`<span class="bigline">${r.pr.stat}</span><span class="sub">avg ${r.pr.avg} · proj ${r.pr.proj}</span>`;
+    const line=r.price?`<span class="bigline">${r.pr.stat} ${r.price.line}</span>${r.price.avgLine!=null&&Math.abs(r.price.avgLine-r.price.line)>=1?`<span class="sub">books ${r.price.avgLine}</span>`:""}${playTxt(r)}${r.e!=null?edgeTxt(r)+'<span class="sub"> to hit</span>':""}${r.mv?`<span class="mv ${(r.mv.dw??r.mv.dl)>0?"up":"dn"}">${Math.abs(r.mv.dl)>=.01?`line ${r.mv.dl>0?"▲":"▼"} from ${r.mv.from}`:`${r.mv.dw>0?"▲":"▼"}${Math.round(Math.abs(r.mv.dw)*100)} since ${prevAt}`}</span>`:""}`:`<span class="bigline">${r.pr.stat}</span><span class="sub">avg ${r.pr.avg} · proj ${r.pr.proj}</span>`;
     return `<div class="pcard click" role="button" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}">
       <div class="top"><div style="min-width:0">${head(r)}</div><div style="display:flex;gap:6px;align-items:center">${stTxt(r)}<button class="star" data-w="${esc(r.p.id)}" aria-pressed="${isWatched(r.p.id)}" aria-label="Watch ${esc(r.p.name)}">★</button></div></div>
       <div class="play">${line}</div>
@@ -345,6 +356,18 @@ function openPlayer(pi,ki){if(!state.tipDone){state.tipDone=true;save();const t=
   if(cur.line<=0)cur.line=.5;
   drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;$("#closebtn").focus();
 }
+function fmtOdds(o){return o>0?"+"+o:String(o);}
+function lineShop(p,pr){const ls=LINES[norm(p.name)+"|"+pr.market];if(!ls)return"";
+  const side=cur?.side||"More";
+  const dfs=DFS.map(b=>{const o=ls.find(l=>l.book===b&&l.side==="Over");return o?{book:b,line:o.line}:null;}).filter(Boolean);
+  const best=dfs.length?(side==="More"?Math.min(...dfs.map(x=>x.line)):Math.max(...dfs.map(x=>x.line))):null;
+  const books=bookLines(p,pr).sort((a,b)=>SHARP.indexOf(a.book)-SHARP.indexOf(b.book)||a.line-b.line);
+  if(!dfs.length&&!books.length)return"";
+  const rows=dfs.map(x=>`<tr${x.line===best&&dfs.length>1?' class="bestline"':""}><td>${BOOKNAME[x.book]}${x.line===best&&dfs.length>1?` <span class="chip g-A">Best for ${side}</span>`:""}</td><td>${x.line}</td><td class="sub" colspan="3">Pick'em app, no odds</td></tr>`).join("")
+    +books.map(x=>`<tr><td>${BOOKNAME[x.book]}</td><td>${x.line}</td><td>${fmtOdds(x.over)}</td><td>${fmtOdds(x.under)}</td><td>${Math.round((side==="More"?x.fair:1-x.fair)*100)}%</td></tr>`).join("");
+  return `<details class="inj" open><summary>Line shop · ${books.length?new Set(books.map(b=>b.book)).size+" sportsbooks":"no sportsbooks yet"} ›</summary>
+   <div style="overflow-x:auto"><table class="mini shop"><thead><tr><th>Book</th><th>Line</th><th>More</th><th>Less</th><th>${side} chance</th></tr></thead><tbody>${rows}</tbody></table></div>
+   <p class="sub" style="margin-top:6px">Chance is each book's own no-vig price at its own line. Overlay's hit chance blends them at the PrizePicks line, counting Pinnacle most and Bovada least.</p></details>`;}
 function hitStats(p,pr,line,side){const L=pr.log;const hit=v=>side==="More"?v.v>line:v.v<line;
   const l5=L.slice(-5);const c=chanceInfo(p,pr,line,side);return{l5:l5.filter(hit).length+"/"+l5.length,season:L.filter(hit).length+"/"+L.length,est:c.p,src:c.src,m:c.m};}
 function drawSheet(){
@@ -378,7 +401,8 @@ function drawSheet(){
    </div>
    <div class="verdict ${kind}"><strong>${g} matchup for ${esc(pr.stat.toLowerCase())}</strong>
    ${NAMES[p.opp]} is ${soft} against ${p.pos}s here. They allow ${d.avg} ${pr.stat.toLowerCase()} per game to the position, ${Math.abs(pctDiff)}% ${pctDiff>=0?"above":"below"} the league average of ${lg} (rank ${d.rank} of 32). Projection: <b>${pr.proj}</b> (season avg ${pr.avg}).
-   ${price&&price.fair!=null?`<br>${BOOKNAME[price.book]} (no-vig${price.adjusted?`, adjusted from its ${price.from} line`:""}) makes ${price.fair>=.5?"More":"Less"} ${price.line} a ${(Math.max(price.fair,1-price.fair)*100).toFixed(1)}% chance.`:""}${price&&price.ud!=null&&price.ud!==price.line?`<br>Line shop: Underdog has ${price.ud} vs PrizePicks ${price.line}.`:""}${(()=>{const pv=HAS_PREV?priceFor(p,pr,LINES_PREV):null;if(!price||!pv)return"";const parts=[];if(pv.line!==price.line)parts.push(`PrizePicks moved from ${pv.line} to ${price.line}`);if(pv.fair!=null&&price.fair!=null&&Math.abs(pv.fair-price.fair)>=.01)parts.push(`the books' chance of More went from ${Math.round(pv.fair*100)}% to ${Math.round(price.fair*100)}%`);return parts.length?`<br>Since ${prevAt}: ${parts.join(", and ")}.`:"";})()}</div>
+   ${price&&price.fair!=null?`<br>${price.n} sportsbook${price.n>1?"s":""} (fee removed${price.adjusted?", adjusted to this line":""}) make ${price.fair>=.5?"More":"Less"} ${price.line} a <b>${(Math.max(price.fair,1-price.fair)*100).toFixed(1)}%</b> chance.`:""}${(()=>{const pv=HAS_PREV?priceFor(p,pr,LINES_PREV):null;if(!price||!pv)return"";const parts=[];if(pv.line!==price.line)parts.push(`PrizePicks moved from ${pv.line} to ${price.line}`);if(pv.fair!=null&&price.fair!=null&&Math.abs(pv.fair-price.fair)>=.01)parts.push(`the books' chance of More went from ${Math.round(pv.fair*100)}% to ${Math.round(price.fair*100)}%`);return parts.length?`<br>Since ${prevAt}: ${parts.join(", and ")}.`:"";})()}</div>
+   ${lineShop(p,pr)}
    <div class="sec">${esc(p.name)} · ${pr.stat} by game</div>
    <div id="logchart">${bars(pr.log.slice(-6),pr.avg,"Season avg "+pr.avg,"Player game log",cur.line)}</div>
    <div class="sec">Usage by game</div>
@@ -393,14 +417,14 @@ function drawSheet(){
    <div class="sec">${NAMES[p.opp]}</div>${injList(p.opp)}</details>`;
   $("#closebtn").onclick=closeSheet;
   $("#lineinput").oninput=e=>{const v=parseFloat(e.target.value);if(!isNaN(v)){cur.line=v;updateChecker();}};
-  document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{cur.side=b.dataset.side;document.querySelectorAll(".seg button").forEach(x=>x.setAttribute("aria-pressed",x===b));updateChecker();});
+  document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{cur.side=b.dataset.side;document.querySelectorAll(".seg button").forEach(x=>x.setAttribute("aria-pressed",x===b));updateChecker();const y=$("#sheet").scrollTop;const ls=document.querySelector("#sheet details.inj[open] table.shop");if(ls){const det=ls.closest("details");det.outerHTML=lineShop(D.players[cur.pi],D.players[cur.pi].props[cur.ki]);}$("#sheet").scrollTop=y;});
   $("#addleg").onclick=()=>{const leg={id:p.id,stat:pr.stat,line:cur.line,side:cur.side};
     state.legs=state.legs.filter(l=>!(l.id===p.id&&l.stat===pr.stat));state.legs.push(leg);save();renderSlip();$("#addleg").textContent="Update slip";toast(`Added ${p.name} ${cur.side} ${cur.line}`);};
 }
 function hitsHtml(h,be){return `<div><span>Last 5</span><b>${h.l5}</b></div><div><span>Season</span><b>${h.season}</b></div>
        <div><span>${h.src==="market"?"Book chance":"Est. chance"}</span><b style="color:${h.est>=be?"var(--pos)":"var(--fg)"}">${(h.est*100).toFixed(0)}%</b></div>`;}
 function srcText(h){if(h.src!=="market")return"Rough estimate from his game logs and this matchup. No sportsbook price for this prop yet.";const m=h.m;
-  return `From ${BOOKNAME[m.book]}'s no-vig price at ${m.line}${m.adjusted?", adjusted to this line":""}.`;}
+  return `Consensus of ${m.n} sportsbook${m.n>1?"s":""}' no-vig prices${m.adjusted?", adjusted to this line":""}.`;}
 function updateChecker(){if(!cur)return;const p=D.players[cur.pi],pr=p.props[cur.ki];  // update results only, never the input itself
   const hh=hitStats(p,pr,cur.line,cur.side);$("#hitsbox").innerHTML=hitsHtml(hh,+state.be);$("#estsrc").textContent=srcText(hh);
   $("#logchart").innerHTML=bars(pr.log.slice(-6),pr.avg,"Season avg "+pr.avg,"Player game log",cur.line);}
