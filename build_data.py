@@ -407,7 +407,9 @@ def _carry_over(wk, status):
         if prev.get("lines") and prev.get("week") == int(wk.week.iloc[0]):
             o = dict(prev.get("odds") or {}); o["status"] = status
             o["fetched"] = o.get("fetched") or prev.get("generated")
-            return {"lines": prev["lines"], "odds": o}
+            out = {"lines": prev["lines"], "odds": o}
+            if prev.get("linesPrev"): out.update({"linesPrev": prev["linesPrev"], "oddsPrev": prev.get("oddsPrev")})
+            return out
     except Exception as e:
         print("could not reuse previous lines:", e, file=sys.stderr)
     return None
@@ -455,7 +457,16 @@ def odds_block(wk, players):
         if kept:
             kept["odds"].update({"errors": ODDS_STATUS["errors"][:5], "remaining": ODDS_STATUS["remaining"] or kept["odds"].get("remaining")})
             return kept
-    return {"lines": lines, "odds": {"status": status, "fetched": datetime.now(timezone.utc).isoformat(timespec="minutes"), **ODDS_STATUS, "errors": ODDS_STATUS["errors"][:5]}}
+    out = {"lines": lines, "odds": {"status": status, "fetched": datetime.now(timezone.utc).isoformat(timespec="minutes"), **ODDS_STATUS, "errors": ODDS_STATUS["errors"][:5]}}
+    try:  # remember the previous pull from the same week so the page can show line movement
+        prev = json.load(open(PREV_PATH)) if PREV_PATH and os.path.exists(PREV_PATH) else {}
+        if prev.get("lines") and prev.get("week") == int(wk.week.iloc[0]):
+            keep = set(SHARP_BOOKS + ["prizepicks"])
+            out["linesPrev"] = [l for l in prev["lines"] if l["book"] in keep]
+            out["oddsPrev"] = {"fetched": (prev.get("odds") or {}).get("fetched") or prev.get("generated")}
+    except Exception as e:
+        print("could not keep previous lines:", e, file=sys.stderr)
+    return out
 
 
 def fetch_lines(wk, players):
