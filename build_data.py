@@ -43,6 +43,9 @@ def load(name, local_dir):
         return pd.read_csv(io.BytesIO(r.read()), low_memory=False)
 
 
+VS = {}  # (team, week) -> "@ DEN" / "vs SF"
+
+
 def r1(x): return None if x is None or pd.isna(x) else round(float(x), 1)
 def r3(x): return None if x is None or pd.isna(x) else round(float(x), 3)
 def key(name): return "".join(ch for ch in str(name).lower() if ch.isalpha())
@@ -66,6 +69,9 @@ def build(week=None, local_dir=None):
         week = int(games[games.result.isna()].week.min())
     wk = games[games.week == week].sort_values(["gameday", "gametime"])
     played_through = int(stats.week.max())
+    VS.clear()
+    for g in games[games.game_type == "REG"].itertuples():
+        VS[(g.home_team, int(g.week))] = f"vs {g.away_team}"; VS[(g.away_team, int(g.week))] = f"@ {g.home_team}"
     team_weeks = {}  # weeks each team actually played
     for g in games[games.result.notna() & (games.week < week)].itertuples():
         team_weeks.setdefault(g.home_team, []).append(int(g.week)); team_weeks.setdefault(g.away_team, []).append(int(g.week))
@@ -83,7 +89,7 @@ def build(week=None, local_dir=None):
                 last = per_game[per_game.opponent_team == team].sort_values("week").tail(5)
                 defense.setdefault(team, {})[f"{pos}|{label}"] = {
                     "avg": round(float(avg[team]), 1), "rank": int(rank[team]), "n": int(len(avg)),
-                    "last": [{"wk": int(w), "v": round(float(v), 1)} for w, v in zip(last.week, last[col])],
+                    "last": [{"wk": int(w), "v": round(float(v), 1), "o": VS.get((team, int(w)), "")} for w, v in zip(last.week, last[col])],
                 }
 
     # ---- half-PPR fantasy points each defense allows to each position ----
@@ -134,7 +140,7 @@ def build(week=None, local_dir=None):
             proj = avg * (d["avg"] / lg) ** 0.5 if d and lg else avg  # soft adjustment
             props.append({"stat": label, "col": col, "market": mkey, "avg": round(avg, 1),
                           "proj": round(proj, 1), "sd": round(sd, 1),
-                          "log": [{"wk": int(w), "v": round(float(v), 1)} for w, v in zip(logs.week, vals)]})
+                          "log": [{"wk": int(w), "v": round(float(v), 1), "o": VS.get((t, int(w)), "")} for w, v, t in zip(logs.week, vals, logs.team)]})
         usage = [{"wk": int(r.week), "snap": r3(snap_pct.get((key(name), team, int(r.week)))),
                   "tgt": int(r.targets), "tshare": r3(r.target_share), "car": int(r.carries),
                   "cshare": r3(r.carry_share), "att": int(r.attempts)} for r in logs.itertuples()]
@@ -273,7 +279,7 @@ def build_fantasy(stats, games, wk, week, defense_fp, league_fp, status_of, abse
             "proj": round(proj, 1), "floor": round(max(0, proj - 0.8 * sd), 1) if opp else 0, "ceil": round(proj + 0.8 * sd, 1) if opp else 0,
             "avg": round(float(fp.mean()), 1), "games": int(len(fp)),
             "matchRank": d["rank"] if d else None, "matchAllowed": d["avg"] if d else None,
-            "implied": r1(imp_of.get(team)), "log": [{"wk": int(w), "v": round(float(v), 1)} for w, v in zip(logs.week, fp)],
+            "implied": r1(imp_of.get(team)), "log": [{"wk": int(w), "v": round(float(v), 1), "o": VS.get((t, int(w)), "")} for w, v, t in zip(logs.week, fp, logs.team)],
             "opp_log": [int(x) for x in u], "snaps": [r3(x) for x in snaps], "rise": round(rise, 1),
             "adds": tr.get("adds", 0), "drops": tr.get("drops", 0),
             "teammateOut": [a["name"] for a in absences.get(team, []) if a["pid"] != pid and ((a["tgt"] or 0) >= 4 or (a["car"] or 0) >= 8 or a["pos"] == "QB")],
@@ -339,7 +345,7 @@ def build_k_dst(stats, team_stats, games, week, ctx):
                     "status": ctx["status"].get((key(name), team), ""), "proj": round(proj, 1), "floor": fl, "ceil": ce,
                     "avg": round(float(logs.kp.mean()), 1), "games": int(len(logs)),
                     "matchRank": int(rank_k[opp]) if opp in rank_k else None, "matchAllowed": round(float(allowed_k[opp]), 1) if opp in allowed_k else None,
-                    "implied": r1(ctx["imp"].get(team)), "log": [{"wk": int(w), "v": float(v)} for w, v in zip(logs.week, logs.kp)],
+                    "implied": r1(ctx["imp"].get(team)), "log": [{"wk": int(w), "v": float(v), "o": VS.get((t, int(w)), "")} for w, v, t in zip(logs.week, logs.kp, logs.team)],
                     "breakdown": [{"wk": int(r.week), "txt": f"{int(r.fg_made)}/{int(r.fg_att)} FG, {int(r.pat_made)}/{int(r.pat_att)} XP" + (f", long {int(r.fg_long)}" if r.fg_made and not pd.isna(r.fg_long) else "")} for r in logs.itertuples()],
                     "opp_log": [], "snaps": [], "rise": 0, "adds": 0, "drops": 0, "teammateOut": []})
 
@@ -367,7 +373,7 @@ def build_k_dst(stats, team_stats, games, week, ctx):
         out.append({"id": "DEF-" + team, "name": f"{TEAM_NAME.get(team, team)} D/ST", "pos": "DEF", "team": team, "opp": opp, "game": ctx["game"].get(team),
                     "status": "", "proj": round(proj, 1), "floor": fl, "ceil": ce, "avg": round(float(logs.dp.mean()), 1), "games": int(len(logs)),
                     "matchRank": int(rank_off[opp]) if opp in rank_off else None, "matchAllowed": round(float(given[opp]), 1) if opp in given else None,
-                    "implied": r1(ctx["imp"].get(opp)), "log": [{"wk": int(w), "v": float(v)} for w, v in zip(logs.week, logs.dp)],
+                    "implied": r1(ctx["imp"].get(opp)), "log": [{"wk": int(w), "v": float(v), "o": VS.get((team, int(w)), "")} for w, v in zip(logs.week, logs.dp)],
                     "breakdown": [{"wk": int(r.week), "txt": f"{int(r.pa)} pts allowed, {r.def_sacks:g} sk, {int(r.def_interceptions)} INT, {int(r.fumble_recovery_opp)} FR" + (f", {int(r.def_tds + r.special_teams_tds)} TD" if r.def_tds + r.special_teams_tds else "")} for r in logs.itertuples()],
                     "opp_log": [], "snaps": [], "rise": 0, "adds": 0, "drops": 0, "teammateOut": []})
     return out

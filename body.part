@@ -331,7 +331,7 @@ function renderMatch(){
 
 // ---------- charts ----------
 function bars(values,ref,refLabel,label,line){
-  const W=460,H=150,pad={l:36,r:8,t:14,b:24};const n=Math.max(values.length,1);
+  const hasO=values.some(v=>v.o);const W=460,H=hasO?164:150,pad={l:36,r:8,t:14,b:hasO?38:24};const n=Math.max(values.length,1);
   const max=Math.max(...values.map(v=>v.v),ref,line??0,1)*1.18;
   const y=v=>pad.t+(H-pad.t-pad.b)*(1-v/max);const bw=(W-pad.l-pad.r)/n;
   const step=max>40?Math.ceil(max/2/10)*10:Math.max(1,Math.ceil(max/2));const ticks=[0,step,step*2].filter(t=>t<=max);
@@ -339,7 +339,7 @@ function bars(values,ref,refLabel,label,line){
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">
   ${ticks.map(t=>`<line x1="${pad.l}" x2="${W-pad.r}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)" opacity=".7"/><text x="${pad.l-6}" y="${y(t)+4}" text-anchor="end">${t}</text>`).join("")}
   ${values.map((v,k)=>`<rect x="${pad.l+k*bw+bw*.22}" y="${y(v.v)}" width="${bw*.56}" height="${Math.max(0,y(0)-y(v.v))}" rx="2" fill="${v.v>cut?"var(--pos)":"var(--line)"}"/>
-   <text x="${pad.l+k*bw+bw/2}" y="${y(v.v)-4}" text-anchor="middle">${v.v}</text><text x="${pad.l+k*bw+bw/2}" y="${H-7}" text-anchor="middle">Wk ${v.wk}</text>`).join("")}
+   <text x="${pad.l+k*bw+bw/2}" y="${y(v.v)-4}" text-anchor="middle">${v.v}</text><text x="${pad.l+k*bw+bw/2}" y="${hasO?H-21:H-7}" text-anchor="middle">Wk ${v.wk}</text>${v.o?`<text x="${pad.l+k*bw+bw/2}" y="${H-6}" text-anchor="middle" style="fill:var(--fg)">${esc(v.o)}</text>`:""}`).join("")}
   <line x1="${pad.l}" x2="${W-pad.r}" y1="${y(cut)}" y2="${y(cut)}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4"/>
   </svg><div class="sub"><span style="color:var(--accent)">- - -</span> ${esc(line!=null?"Your line "+line:refLabel)}</div>`;
 }
@@ -377,7 +377,8 @@ function drawSheet(){
   const pctDiff=Math.round((d.avg-lg)/lg*100);const price=priceFor(p,pr);const h=hitStats(p,pr,cur.line,cur.side);
   const be=+state.be;const inSlip=state.legs.some(l=>l.id===p.id&&l.stat===pr.stat);
   const statBtns=p.props.map((x,k)=>`<button class="btn" ${k===ki?'aria-current="true" style="border-color:var(--accent);color:var(--accent)"':""} data-pi="${pi}" data-ki="${k}" data-switch="1">${esc(x.stat)}</button>`).join(" ");
-  const usageRows=p.usage.map(u=>`<tr><td>Wk ${u.wk}</td><td>${pctf(u.snap)}</td>${p.pos==="QB"?`<td>${u.att}</td><td>${u.car}</td>`:p.pos==="RB"?`<td>${u.car}</td><td>${pctf(u.cshare)}</td><td>${u.tgt}</td>`:`<td>${u.tgt}</td><td>${pctf(u.tshare)}</td>`}</tr>`).join("");
+  const oppWk=Object.fromEntries((pr.log||[]).map(x=>[x.wk,x.o||""]));
+  const usageRows=p.usage.map(u=>`<tr><td>Wk ${u.wk} <span class="sub">${esc(oppWk[u.wk]||"")}</span></td><td>${pctf(u.snap)}</td>${p.pos==="QB"?`<td>${u.att}</td><td>${u.car}</td>`:p.pos==="RB"?`<td>${u.car}</td><td>${pctf(u.cshare)}</td><td>${u.tgt}</td>`:`<td>${u.tgt}</td><td>${pctf(u.tshare)}</td>`}</tr>`).join("");
   const usageHead=p.pos==="QB"?"<th>Snaps</th><th>Pass att</th><th>Carries</th>":p.pos==="RB"?"<th>Snaps</th><th>Carries</th><th>Carry share</th><th>Targets</th>":"<th>Snaps</th><th>Targets</th><th>Target share</th>";
   const splits=(p.splits||[]).filter(s=>(s.tgt||0)>=4||(s.car||0)>=8||s.pos==="QB");
   const splitHtml=splits.map(s=>{const vac=s.pos==="QB"?"the starting QB job":[s.tgt>=1?`${s.tgt} targets`:"",s.car>=1?`${s.car} carries`:""].filter(Boolean).join(" and ")+" a game";
