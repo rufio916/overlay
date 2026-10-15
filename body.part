@@ -570,7 +570,7 @@ const injWeek=Math.max(0,...Object.values(D.injuries).flat().map(x=>x.week));
 $("#freshness").textContent=`Stats thru Wk ${D.statsThrough}`;$("#freshness").style.color="var(--muted)";$("#freshness").style.background="var(--raised)";
 $("#matchtitle").textContent=`Week ${D.week} props`;
 const oddsAt=D.odds&&D.odds.fetched?new Date(D.odds.fetched).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit"}):null;
-$("#linesbanner").innerHTML=HAS_LINES?`<b>PrizePicks lines as of ${oddsAt||"the last refresh"}.</b> Green hit chance = beats your slip's <span id="bepct">${(state.be*100).toFixed(0)}%</span> break-even. New lines arrive Saturday mornings; double-check any line in the app before you play it.`:
+$("#linesbanner").innerHTML=HAS_LINES?`<b>PrizePicks lines as of ${oddsAt||"the last refresh"}.</b> Green hit chance = beats your slip's <span id="bepct">${(state.be*100).toFixed(0)}%</span> break-even. New lines arrive Saturday and Sunday mornings; double-check any line in the app before you play it.`:
  `<b>Live PrizePicks lines aren't connected yet.</b> Open a player and type in the line from the app to check it.${injWeek<D.week?` Injury statuses are from the Week ${injWeek} report until Week ${D.week} reports come out midweek.`:""}`;
 $("#sliplabel").hidden=!HAS_LINES;
 if(D.odds&&D.odds.remaining!=null)$("#credits").textContent=`Odds credits left: ${D.odds.remaining}.`;

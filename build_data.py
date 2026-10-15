@@ -398,7 +398,40 @@ LOCAL_DIR = None
 PREV_PATH = None  # previous data.json, so runs without odds keep the last lines for the same week
 
 
+MIN_CREDITS = 70  # don't start a pull unless at least this many credits are left (a full slate costs ~55-65)
+
+
+def _carry_over(wk, status):
+    try:
+        prev = json.load(open(PREV_PATH)) if PREV_PATH and os.path.exists(PREV_PATH) else {}
+        if prev.get("lines") and prev.get("week") == int(wk.week.iloc[0]):
+            o = dict(prev.get("odds") or {}); o["status"] = status
+            o["fetched"] = o.get("fetched") or prev.get("generated")
+            return {"lines": prev["lines"], "odds": o}
+    except Exception as e:
+        print("could not reuse previous lines:", e, file=sys.stderr)
+    return None
+
+
+def _credits_left_guess():
+    """Credits left after the last pull, or None if unknown or a new month has started (credits reset on the 1st)."""
+    try:
+        prev = json.load(open(PREV_PATH))
+        o = prev.get("odds") or {}
+        last = o.get("fetched") or ""
+        if o.get("remaining") is None or last[:7] != datetime.now(timezone.utc).strftime("%Y-%m"):
+            return None
+        return int(o["remaining"])
+    except Exception:
+        return None
+
+
 def odds_block(wk, players):
+    if os.environ.get("ODDS_API_KEY"):
+        left = _credits_left_guess()
+        if left is not None and left < MIN_CREDITS:
+            print(f"only {left} odds credits left; keeping last lines until the monthly reset", file=sys.stderr)
+            return _carry_over(wk, "skipped: low credits") or {"lines": [], "odds": {"status": "skipped: low credits", "remaining": left}}
     if not os.environ.get("ODDS_API_KEY"):
         try:
             prev = json.load(open(PREV_PATH)) if PREV_PATH and os.path.exists(PREV_PATH) else {}
@@ -414,6 +447,11 @@ def odds_block(wk, players):
         status = "ok" if lines else ("error" if ODDS_STATUS["errors"] else "no lines yet")
     except Exception as e:
         lines, status = [], "error"; ODDS_STATUS["errors"].append(f"{type(e).__name__}: {e}"[:300])
+    if not lines:  # a failed or empty pull keeps the last good lines instead of blanking the page
+        kept = _carry_over(wk, f"{status}, kept last lines")
+        if kept:
+            kept["odds"].update({"errors": ODDS_STATUS["errors"][:5], "remaining": ODDS_STATUS["remaining"] or kept["odds"].get("remaining")})
+            return kept
     return {"lines": lines, "odds": {"status": status, "fetched": datetime.now(timezone.utc).isoformat(timespec="minutes"), **ODDS_STATUS, "errors": ODDS_STATUS["errors"][:5]}}
 
 
