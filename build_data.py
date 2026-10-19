@@ -209,7 +209,18 @@ def build(week=None, local_dir=None):
 
     fantasy = build_fantasy(stats, games, wk, week, defense_fp, league_fp, status_of, absences, snap_pct)
 
+    # ---- pick'em: this week and next, with moneylines (free, from the nflverse schedule) ----
+    pickem = []
+    for g in games[games.week.isin([week, week + 1]) & (games.game_type == "REG")].sort_values(["gameday", "gametime"]).itertuples():
+        pickem.append({"id": g.game_id, "week": int(g.week), "day": g.gameday, "time": g.gametime, "away": g.away_team, "home": g.home_team,
+                       "mlA": None if pd.isna(g.away_moneyline) else int(g.away_moneyline), "mlH": None if pd.isna(g.home_moneyline) else int(g.home_moneyline),
+                       "spread": r1(g.spread_line), "total": r1(g.total_line),
+                       "qbA": g.away_qb_name if isinstance(g.away_qb_name, str) else None, "qbH": g.home_qb_name if isinstance(g.home_qb_name, str) else None,
+                       "qbALast": last_qb(g.away_team), "qbHLast": last_qb(g.home_team),
+                       "scoreA": None if pd.isna(g.away_score) else int(g.away_score), "scoreH": None if pd.isna(g.home_score) else int(g.home_score)})
+
     return {
+        "pickem": pickem,
         "fantasy": fantasy,
         "generated": datetime.now(timezone.utc).isoformat(timespec="minutes"),
         "season": SEASON, "week": week, "statsThrough": played_through,

@@ -103,7 +103,7 @@ details.inj summary{cursor:pointer;font-size:11px;font-weight:600;letter-spacing
   .controls{display:none}
   .controls.open{display:flex}
   nav.tabs{gap:0;padding:0 8px}
-  nav.tabs button{font-size:14px;padding:9px 7px 8px;letter-spacing:.02em}
+  nav.tabs button{font-size:13px;padding:9px 5px 8px;letter-spacing:.01em}
   .sample{display:none}
   .banner{font-size:12px;padding:8px 12px}
 }
@@ -122,6 +122,26 @@ table.shop tr.bestline td{background:var(--pos-soft)}
 details.ginj summary{cursor:pointer;list-style:none}
 details.ginj summary::-webkit-details-marker{display:none}
 .bestrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+/* pick'em */
+.pkbar{display:flex;flex-wrap:wrap;gap:16px;align-items:end;margin-bottom:14px}
+.pkbar label{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.pkbar input[type=range]{width:220px}
+.pksum{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:14px}
+.pksum div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.pksum b{display:block;font-family:var(--mono);font-size:22px}
+.pksum span{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.pkgame{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;position:relative}
+.pkgame .meta2{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}
+.pkteam{font:inherit;color:var(--fg);background:var(--raised);border:2px solid transparent;border-radius:8px;padding:10px;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:6px;min-width:0}
+.pkteam[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.pkteam:disabled{cursor:default;opacity:.75}
+.pkteam .tn{font-family:var(--display);font-weight:700;font-size:20px;text-transform:uppercase;letter-spacing:.02em;display:flex;justify-content:space-between;gap:6px}
+.pkbarw{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.pkbarw i{display:block;height:100%;background:var(--pos)}
+.pkteam .sm{font-size:12px;color:var(--muted)}
+.pklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+.upset{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px;background:var(--warn-soft);color:var(--warn)}
+.won{color:var(--pos)} .lost{color:var(--neg)}
 </style>
 <header class="top">
   <div class="topin">
@@ -133,6 +153,7 @@ details.ginj summary::-webkit-details-marker{display:none}
     <button role="tab" aria-selected="true" data-tab="match">Props</button>
     <button role="tab" aria-selected="false" data-tab="slip">Slip<span class="badge" id="slipcount" hidden>0</span></button>
     <button role="tab" aria-selected="false" data-tab="fantasy">Fantasy</button>
+    <button role="tab" aria-selected="false" data-tab="pickem">Pick'em</button>
     <button role="tab" aria-selected="false" data-tab="defense">Defenses</button>
     <button role="tab" aria-selected="false" data-tab="games">Games</button>
   </nav>
@@ -185,6 +206,17 @@ details.ginj summary::-webkit-details-marker{display:none}
     <datalist id="fplayers"></datalist>
     <div id="fview"></div>
     <details class="info"><summary>How projections work</summary><p>Projections are simple estimates: a blend of season and last-3-game half-PPR scoring, nudged by the half-PPR points this defense allows to the position and by the team's implied points. Range is a typical bad week to a typical good week. Players listed Out project to 0.</p><p>Kickers and defenses use Yahoo's default scoring: field goals 3 points (0–39 yds), 4 (40–49), 5 (50+), extra points 1; defense gets 1 per sack, 2 per interception, fumble recovery, safety or blocked kick, 6 per TD, plus points-allowed tiers (+10 shutout down to −4 for 35+). A defense's projection uses its own sacks and takeaways, what the opponent's offense gives up, and the opponent's expected points. For a defense, "Team pts" is the opponent's expected points (lower is better).</p></details>
+  </section>
+
+  <section id="pickem" hidden>
+    <h2 id="pktitle">Pick'em</h2>
+    <p class="lede">Straight-up picks from the betting markets' win chances, tuned to your pool size. Tap a team to change a pick.</p>
+    <div id="pkview"></div>
+    <details class="info"><summary>How the picks work</summary>
+      <p><b>Win chance</b> comes from each game's moneyline with the sportsbook fee removed. Betting markets are the most accurate free predictor of who wins.</p>
+      <p><b>Pool size matters.</b> Picking every favorite gets you the most correct picks on average, but in a big pool you'll often tie with many people who did the same. Overlay simulates the week thousands of times against a pool of your size, assuming other players pick favorites a bit more often than the odds justify, and adds an upset only when it raises your chance of finishing first.</p>
+      <p><b>Tiebreaker</b> uses the last game's over/under, which is the market's best guess at total points.</p>
+      <p>Estimates only. Other players' picks are modeled, not known.</p></details>
   </section>
 
   <section id="defense" hidden>
@@ -649,6 +681,89 @@ function openFantasy(id){const p=fp(id);if(!p)return;const g=fgrade(p);const t=f
 $("#fplayers").innerHTML=F.map(p=>`<option value="${esc(`${p.name} (${p.pos}, ${p.team})`)}"></option>`).join("");
 $("#fnav").addEventListener("click",e=>{const b=e.target.closest("button[data-fv]");if(b){state.fv=b.dataset.fv;save();renderFantasy();}});
 
+// ---------- pick'em ----------
+const PK=D.pickem||[];
+function etDate(day,time){const [y,m,d]=day.split("-").map(Number);
+  const nthSun=(mo,n)=>{const f=new Date(Date.UTC(y,mo-1,1)).getUTCDay();return 1+((7-f)%7)+7*(n-1);};
+  const dst=(m>3&&m<11)||(m===3&&d>=nthSun(3,2))||(m===11&&d<nthSun(11,1));
+  return new Date(`${day}T${time}:00${dst?"-04:00":"-05:00"}`);}
+function pkProb(g){if(g.mlA!=null&&g.mlH!=null){const a=imp(g.mlA),h=imp(g.mlH);return h/(a+h);}
+  if(g.spread!=null)return cdf(g.spread/13.5);return .5;} // home win chance
+const PK_WEEKS=[...new Set(PK.map(g=>g.week))].sort((a,b)=>a-b);
+function pkDefaultWeek(){const now=new Date();for(const w of PK_WEEKS){const first=PK.filter(g=>g.week===w).map(g=>etDate(g.day,g.time)).sort((a,b)=>a-b)[0];if(first>now)return w;}return PK_WEEKS[PK_WEEKS.length-1];}
+if(!PK_WEEKS.includes(state.pkWeek))state.pkWeek=pkDefaultWeek();
+if(!state.pkN)state.pkN=26;
+state.pk=state.pk||{};
+const poolFromSlider=v=>Math.round(Math.exp(Math.log(2)+(Math.log(1000)-Math.log(2))*v/100));
+const sliderFromPool=n=>Math.round(100*(Math.log(n)-Math.log(2))/(Math.log(1000)-Math.log(2)));
+// seeded random so results are stable between renders
+function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+let pkSims=null,pkSimKey="";
+function pkSetup(games){const key=games.map(g=>g.id).join(",");if(pkSimKey===key)return;pkSimKey=key;
+  const r=mulberry(12345),S=3000;pkSims=[];for(let i=0;i<S;i++)pkSims.push(games.map(g=>r()<pkProb(g)?1:0));} // 1 = home won
+// chance our picks finish first (ties split) against n-1 others who pick favorites a bit too often
+function pkWinChance(games,picks,n){
+  const q=games.map(g=>{const p=pkProb(g),k=1.6;return Math.pow(p,k)/(Math.pow(p,k)+Math.pow(1-p,k));}); // share of others picking home
+  let tot=0;const G=games.length;
+  for(const out of pkSims){let ours=0;const dist=new Float64Array(G+1);dist[0]=1;
+    for(let i=0;i<G;i++){const hw=out[i]===1;if((picks[i]===1)===hw)ours++;const pc=hw?q[i]:1-q[i];
+      for(let s=i+1;s>=1;s--)dist[s]=dist[s]*(1-pc)+dist[s-1]*pc;dist[0]*=(1-pc);}
+    let F1=0;for(let s=0;s<ours;s++)F1+=dist[s];const f=dist[ours],F=F1+f;
+    tot+=n<=1?1:(f>1e-12?(Math.pow(F,n)-Math.pow(F1,n))/(n*f):Math.pow(F1,n-1));}
+  return tot/pkSims.length;}
+function pkOptimize(games,n){const fav=games.map(g=>pkProb(g)>=.5?1:0);let best=fav.slice(),bestW=pkWinChance(games,best,n);
+  for(let round=0;round<6;round++){let imp=null;
+    for(let i=0;i<games.length;i++){const p=pkProb(games[i]);if(Math.max(p,1-p)>.78||best[i]!==fav[i])continue;
+      const t=best.slice();t[i]=1-t[i];const w=pkWinChance(games,t,n);if(w>bestW*1.01&&(!imp||w>imp.w))imp={i,w};}
+    if(!imp)break;best[imp.i]=1-best[imp.i];bestW=imp.w;}
+  return{picks:best,w:bestW,favW:pkWinChance(games,fav,n)};}
+let pkTimer=null;
+const pctTxt=x=>x<.001?"<0.1%":(x*100).toFixed(x<.1?1:0)+"%";
+function renderPickem(){
+  const w=state.pkWeek;const games=PK.filter(g=>g.week===w);
+  $("#pktitle").textContent=`Week ${w} pick'em`;
+  if(!games.length){$("#pkview").innerHTML='<p class="sub">No games found for this week yet.</p>';return;}
+  pkSetup(games);const n=state.pkN;
+  const opt=pkOptimize(games,n);
+  const saved=state.pk[w]||{};const picks=games.map((g,i)=>saved[g.id]!=null?saved[g.id]:opt.picks[i]);
+  const winNow=pkWinChance(games,picks,n);const exp=games.reduce((s,g,i)=>s+(picks[i]?pkProb(g):1-pkProb(g)),0);
+  const upsets=games.filter((g,i)=>(picks[i]===1)!==(pkProb(g)>=.5)).length;
+  const last=[...games].sort((a,b)=>etDate(a.day,a.time)-etDate(b.day,b.time)).at(-1);
+  const now=new Date();
+  const changed=Object.keys(saved).length>0;
+  const weekBtns=PK_WEEKS.map(x=>`<button data-pkw="${x}" aria-pressed="${x===w}">Week ${x}</button>`).join("");
+  let h=`<div class="pkbar"><div class="subnav" style="margin:0">${weekBtns}</div>
+    <label for="pkpool">People in your pool: <span class="rv" id="pkn">${n}</span><input type="range" id="pkpool" min="0" max="100" value="${sliderFromPool(n)}"></label>
+    ${changed?'<button class="btn" id="pkreset">Reset to recommended</button>':""}<button class="btn" id="pkcopy">Copy picks</button></div>
+    <div class="pksum"><div><span>Expected correct</span><b>${exp.toFixed(1)} / ${games.length}</b></div>
+      <div><span>Chance to win your pool</span><b>${pctTxt(winNow)}</b><span style="text-transform:none;letter-spacing:0">all favorites: ${pctTxt(opt.favW)} · random pick: ${pctTxt(1/n)}</span></div>
+      <div><span>Upset picks</span><b>${upsets}</b></div>
+      <div><span>Tiebreaker · ${last.away} @ ${last.home}</span><b>${last.total!=null?Math.round(last.total):"–"} pts</b></div></div>
+    <div class="pklist">`;
+  h+=games.map((g,i)=>{const ph=pkProb(g),pa=1-ph;const started=etDate(g.day,g.time)<=now;const fin=g.scoreA!=null&&g.scoreH!=null;
+    const pick=picks[i];const isUpset=(pick===1)!==(ph>=.5);
+    const qbc=(t)=>{const now_=t==="A"?g.qbA:g.qbH,last_=t==="A"?g.qbALast:g.qbHLast;return now_&&last_&&norm(now_)!==norm(last_)?`<span class="flag warn">QB: ${esc(now_)}</span>`:"";};
+    const team=(side)=>{const isH=side==="H",t=isH?g.home:g.away,p=isH?ph:pa,ml=isH?g.mlH:g.mlA,sel=(pick===1)===isH;
+      const res=fin?((isH?g.scoreH>g.scoreA:g.scoreA>g.scoreH)?'<span class="won">W</span>':'<span class="lost">L</span>'):"";
+      return `<button class="pkteam" data-pkg="${g.id}" data-side="${isH?1:0}" aria-pressed="${sel}" ${started?"disabled":""}>
+        <span class="tn"><span>${t} <span class="sm" style="font-family:var(--body);text-transform:none;font-weight:400">${isH?"home":"away"}</span></span><span>${res||(sel?"✓":"")}</span></span>
+        <span class="pkbarw"><i style="width:${Math.round(p*100)}%"></i></span>
+        <span class="sm">${Math.round(p*100)}% to win${ml!=null?` · ${fmtOdds(ml)}`:""}${fin?` · ${isH?g.scoreH:g.scoreA}`:""}</span>${qbc(isH?"H":"A")}</button>`;};
+    return `<div class="pkgame">${team("A")}${team("H")}<div class="meta2"><span>${kick(g)}${g.spread!=null?" · "+spreadTxt(g):""}</span>${isUpset?'<span class="upset">Upset pick</span>':""}${started&&!fin?'<span class="sub">Locked</span>':""}</div></div>`;}).join("")+`</div>`;
+  $("#pkview").innerHTML=h;
+  $("#pkpool").oninput=e=>{const v=poolFromSlider(+e.target.value);$("#pkn").textContent=v;clearTimeout(pkTimer);pkTimer=setTimeout(()=>{state.pkN=v;save();renderPickem();},250);};
+  const rs=$("#pkreset");if(rs)rs.onclick=()=>{delete state.pk[w];save();renderPickem();};
+  $("#pkcopy").onclick=()=>{const txt=`Week ${w} picks: `+games.map((g,i)=>picks[i]?g.home:g.away).join(", ")+(last.total!=null?`\nTiebreaker (${last.away} @ ${last.home}): ${Math.round(last.total)}`:"");
+    (navigator.clipboard?.writeText(txt)||Promise.reject()).then(()=>toast("Picks copied"),()=>toast("Copy not allowed here"));};
+}
+document.addEventListener("click",e=>{
+  const wb=e.target.closest("[data-pkw]");if(wb){state.pkWeek=+wb.dataset.pkw;save();renderPickem();return;}
+  const tb=e.target.closest(".pkteam");if(tb&&!tb.disabled){const w=state.pkWeek,games=PK.filter(g=>g.week===w);pkSetup(games);
+    const opt=pkOptimize(games,state.pkN);const i=games.findIndex(g=>g.id===tb.dataset.pkg);const v=+tb.dataset.side;
+    state.pk[w]=state.pk[w]||{};if(opt.picks[i]===v)delete state.pk[w][tb.dataset.pkg];else state.pk[w][tb.dataset.pkg]=v;
+    if(!Object.keys(state.pk[w]).length)delete state.pk[w];save();renderPickem();}
+});
+
 // ---------- wiring ----------
 $("#weeklabel").textContent=`NFL · WEEK ${D.week}`;
 const injWeek=Math.max(0,...Object.values(D.injuries).flat().map(x=>x.week));
@@ -663,7 +778,7 @@ $("#updated").textContent="Updated "+new Date(D.generated).toLocaleString("en-US
 if(!state.tipDone)$("#tip").hidden=false;
 $("#tipclose").onclick=()=>{state.tipDone=true;save();$("#tip").hidden=true;};
 $("#ftoggle").onclick=()=>{const o=$("#filters").classList.toggle("open");$("#ftoggle").setAttribute("aria-expanded",o);};
-const TABS=["match","slip","fantasy","defense","games"];
+const TABS=["match","slip","fantasy","pickem","defense","games"];
 function setTab(t){if(!TABS.includes(t))t="match";state.tab=t;save();document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));TABS.forEach(id=>$("#"+id).hidden=id!==t);}
 document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
 [...new Set(ROWS.map(r=>r.pr.stat))].forEach(m=>$("#mkt").insertAdjacentHTML("beforeend",`<option>${m}</option>`));
@@ -688,5 +803,5 @@ document.addEventListener("click",e=>{
   const g=e.target.closest(".game");if(g){state.game=g.dataset.g;save();renderGames();const gd=$("#gamedetail");if(gd)gd.scrollIntoView({block:"start"});}
 });
 for(const id of ["#matchbody","#matchcards"])$(id).addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){const r=e.target.closest("tr.click,.pcard");if(r&&e.target===r){e.preventDefault();state.tipDone=true;save();$("#tip").hidden=true;openPlayer(+r.dataset.pi,+r.dataset.ki);}}});
-renderMatch();renderSlip();renderFantasy();renderHeat();renderGames();setTab(state.tab);
+renderMatch();renderSlip();renderFantasy();renderPickem();renderHeat();renderGames();setTab(state.tab);
 </script>
