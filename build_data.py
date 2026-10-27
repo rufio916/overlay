@@ -188,7 +188,10 @@ def build(week=None, local_dir=None):
              "spread": r1(g.spread_line), "total": r1(g.total_line),
              "roof": g.roof if isinstance(g.roof, str) else None, "temp": r1(g.temp), "wind": r1(g.wind),
              "div": bool(g.div_game), "restAway": int(g.away_rest), "restHome": int(g.home_rest),
-             "stadium": g.stadium if isinstance(g.stadium, str) else ""}
+             "stadium": g.stadium if isinstance(g.stadium, str) else "",
+             "mlH": None if pd.isna(g.home_moneyline) else int(g.home_moneyline), "mlA": None if pd.isna(g.away_moneyline) else int(g.away_moneyline),
+             "spreadHOdds": None if pd.isna(g.home_spread_odds) else int(g.home_spread_odds), "spreadAOdds": None if pd.isna(g.away_spread_odds) else int(g.away_spread_odds),
+             "overOdds": None if pd.isna(g.over_odds) else int(g.over_odds), "underOdds": None if pd.isna(g.under_odds) else int(g.under_odds)}
         if e["spread"] is not None and e["total"] is not None:  # implied team totals
             e["impHome"] = round(e["total"] / 2 + e["spread"] / 2, 1); e["impAway"] = round(e["total"] / 2 - e["spread"] / 2, 1)
         e["qbAway"], e["qbHome"] = (g.away_qb_name if isinstance(g.away_qb_name, str) else None), (g.home_qb_name if isinstance(g.home_qb_name, str) else None)
@@ -209,6 +212,38 @@ def build(week=None, local_dir=None):
 
     fantasy = build_fantasy(stats, games, wk, week, defense_fp, league_fp, status_of, absences, snap_pct)
 
+    # ---- team breakdowns: offense vs defense, form, turnovers (free, nflverse) ----
+    nfl_teams = {}
+    try:
+        ts = load("team", local_dir); ts = ts[(ts.season_type == "REG") & (ts.week < week)].copy()
+        for c in ["passing_yards", "rushing_yards", "passing_epa", "rushing_epa", "attempts", "carries", "sacks_suffered", "passing_interceptions",
+                  "fumbles_lost_total", "def_sacks", "def_interceptions", "fumble_recovery_opp"]:
+            ts[c] = ts[c].fillna(0) if c in ts else 0
+        ts["plays"] = ts.attempts + ts.carries + ts.sacks_suffered
+        ts["epa"] = ts.passing_epa + ts.rushing_epa
+        ts["give"] = ts.passing_interceptions + ts.fumbles_lost_total
+        allowed = ts[["opponent_team", "week", "passing_yards", "rushing_yards", "epa", "plays"]].rename(columns={"opponent_team": "team", "passing_yards": "pa_pass", "rushing_yards": "pa_rush", "epa": "pa_epa", "plays": "pa_plays"})
+        ts = ts.merge(allowed, on=["team", "week"], how="left")
+        played_g = games[games.result.notna() & (games.week < week) & (games.game_type == "REG")]
+        for t, x in ts.groupby("team"):
+            gl = []
+            for g in played_g[(played_g.home_team == t) | (played_g.away_team == t)].sort_values("week").itertuples():
+                home = g.home_team == t; pts, opp_pts = (g.home_score, g.away_score) if home else (g.away_score, g.home_score)
+                gl.append({"wk": int(g.week), "opp": g.away_team if home else g.home_team, "home": bool(home), "pts": int(pts), "oppPts": int(opp_pts), "won": bool(pts > opp_pts)})
+            n = max(len(gl), 1)
+            nfl_teams[t] = {"games": len(gl), "record": f"{sum(r['won'] for r in gl)}-{sum((not r['won']) and r['pts'] != r['oppPts'] for r in gl)}" + (f"-{sum(r['pts'] == r['oppPts'] for r in gl)}" if any(r['pts'] == r['oppPts'] for r in gl) else ""),
+                "ppg": r1(sum(r["pts"] for r in gl) / n), "oppg": r1(sum(r["oppPts"] for r in gl) / n),
+                "passYpg": r1(x.passing_yards.mean()), "rushYpg": r1(x.rushing_yards.mean()),
+                "passAllowed": r1(x.pa_pass.mean()), "rushAllowed": r1(x.pa_rush.mean()),
+                "epaPlay": round(float(x.epa.sum() / max(x.plays.sum(), 1)), 3), "epaAllowed": round(float(x.pa_epa.sum() / max(x.pa_plays.sum(), 1)), 3),
+                "give": int(x.give.sum()), "take": int((x.def_interceptions + x.fumble_recovery_opp).sum()), "sacks": int(x.def_sacks.sum()), "sacked": int(x.sacks_suffered.sum()),
+                "last": gl[-5:]}
+        for k, hi in [("ppg", True), ("oppg", False), ("epaPlay", True), ("epaAllowed", False), ("passYpg", True), ("rushYpg", True), ("passAllowed", False), ("rushAllowed", False)]:
+            order = sorted(nfl_teams, key=lambda t: nfl_teams[t][k] if nfl_teams[t][k] is not None else (-1e9 if hi else 1e9), reverse=hi)
+            for i, t in enumerate(order): nfl_teams[t][k + "Rank"] = i + 1
+    except Exception as e:
+        print("team breakdowns skipped:", e, file=sys.stderr)
+
     # ---- pick'em: this week and next, with moneylines (free, from the nflverse schedule) ----
     pickem = []
     for g in games[games.week.isin([week, week + 1]) & (games.game_type == "REG")].sort_values(["gameday", "gametime"]).itertuples():
@@ -220,6 +255,7 @@ def build(week=None, local_dir=None):
                        "scoreA": None if pd.isna(g.away_score) else int(g.away_score), "scoreH": None if pd.isna(g.home_score) else int(g.home_score)})
 
     return {
+        "nflTeams": nfl_teams,
         "pickem": pickem,
         "fantasy": fantasy,
         "generated": datetime.now(timezone.utc).isoformat(timespec="minutes"),

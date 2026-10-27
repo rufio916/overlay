@@ -4,6 +4,7 @@ on:
     - cron: "17 0 * * *"     # every day ~5:17pm Pacific: stats + injury reports (free, no odds credits)
     - cron: "17 17 * * 4"    # Thursday ~10:17am Pacific: PrizePicks + sportsbook lines before TNF (~55 credits)
     - cron: "17 17 * * 6"    # Saturday ~10:17am Pacific: PrizePicks + sportsbook lines for Sun/Mon (~50 credits)
+    - cron: "37 17 * * *"    # every day ~10:37am Pacific: NBA lines (posted the morning of each game) + free NFL refresh
   workflow_dispatch:           # "Run workflow" button for a manual refresh
     inputs:
       odds:
@@ -12,6 +13,9 @@ on:
         default: false
 permissions:
   contents: write
+concurrency:
+  group: refresh
+  cancel-in-progress: false
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -36,9 +40,14 @@ jobs:
           if [ "$FETCH" = "1" ]; then export ODDS_API_KEY="$KEY"; fi
           python build_data.py --out data.json
       - run: python assemble.py index.html
+      - name: "NBA (free: sportsdataverse box scores + ESPN lines and injuries)"
+        run: |
+          cp nba.json nba_prev.json 2>/dev/null || true
+          if python nba_build.py --out nba.json; then python assemble_nba.py nba.html; else echo "NBA build failed; keeping the last NBA page"; cp nba_prev.json nba.json 2>/dev/null || true; fi
+          rm -f nba_prev.json
       - run: |
           git config user.name "overlay-bot"
           git config user.email "overlay-bot@users.noreply.github.com"
-          git add data.json index.html
+          git add data.json index.html nba.json nba.html
           git diff --cached --quiet || git commit -m "Refresh data"
           git push

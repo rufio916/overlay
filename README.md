@@ -1,5 +1,7 @@
 # Overlay
 
+NFL (index.html) and NBA (nba.html) betting research, all on free data except optional NFL prop odds.
+
 NFL prop matchup tool for PrizePicks. Free stack:
 
 - **nflverse** (free, no key): schedule, weekly player stats, injury reports
@@ -22,3 +24,8 @@ Your site is at `https://<your-username>.github.io/overlay/`.
 - If there aren't enough credits left for a pull, it's skipped and the last lines are kept until the reset.
 - All other runs keep the last lines. For an extra pull: Actions → "Refresh Overlay data" → Run workflow → tick the odds box.
 GitHub's scheduled runs can start a few hours late when GitHub is busy.
+
+## NBA (free)
+- Box scores and schedule: sportsdataverse (`nba_build.py`), refreshed with every run.
+- Lines (DraftKings, via ESPN) and the injury report: ESPN's public site API. Lines usually appear the morning of each game, so a daily ~10:37am Pacific run picks them up.
+- No Odds API credits are used for NBA.

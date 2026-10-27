@@ -142,10 +142,34 @@ details.ginj summary::-webkit-details-marker{display:none}
 .pklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
 .upset{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px;background:var(--warn-soft);color:var(--warn)}
 .won{color:var(--pos)} .lost{color:var(--neg)}
+.sport{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-bottom:4px}
+.sport a{font-family:var(--display);font-weight:700;font-size:14px;letter-spacing:.06em;padding:4px 12px;color:var(--muted);text-decoration:none}
+.sport a[aria-current="page"]{background:var(--fg);color:var(--bg)}
+.gm-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.cmp{width:100%;min-width:0;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.cmp th,.cmp td{padding:7px 8px;border-bottom:1px solid var(--line);font-size:13px}
+.cmp th{text-align:center;font-family:var(--display);font-size:16px;text-transform:uppercase;letter-spacing:.03em;color:var(--fg)}
+.cmp td:first-child{color:var(--muted);font-size:12px}
+.cmp td.v{text-align:center;font-family:var(--mono)}
+.cmp td.v.better{color:var(--pos);font-weight:600}
+.rk{font-size:11px;color:var(--muted);font-family:var(--body)}
+.betbtns{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.betbtn{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--raised);color:var(--fg);border-radius:6px;padding:8px;cursor:pointer;display:flex;justify-content:space-between;gap:6px}
+.betbtn:hover{border-color:var(--accent)}
+.betbtn[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.betbtn b{font-family:var(--mono)}
+ul.why{margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+ul.why li{line-height:1.45}
+.formdots{display:inline-flex;gap:3px;vertical-align:middle}
+.formdots i{width:9px;height:9px;border-radius:2px;display:inline-block;background:var(--neg)}
+.formdots i.w{background:var(--pos)}
+.daygroup{font-family:var(--display);font-weight:700;font-size:18px;text-transform:uppercase;letter-spacing:.04em;margin:18px 0 8px;color:var(--muted)}
+.lean{font-weight:600}
 </style>
 <header class="top">
   <div class="topin">
     <div class="brand">Over<span>lay</span></div>
+    <nav class="sport" aria-label="Sport"><a href="./" aria-current="page">NFL</a><a href="nba.html">NBA</a></nav>
     <div class="week" id="weeklabel"></div>
     <div class="sample" id="freshness"></div>
   </div>
@@ -194,6 +218,7 @@ details.ginj summary::-webkit-details-marker{display:none}
       <div class="panel" id="sliplegs"></div>
       <div class="panel" id="slipsum"></div>
     </div>
+    <div class="slipgrid" style="margin-top:16px"><div class="panel" id="parlegs"></div><div class="panel" id="parsum"></div></div>
     <details class="info"><summary>How chances are calculated</summary><p>Chances come from sportsbook no-vig prices when books have the prop. Picks marked * use Overlay's rough estimate from this season's game logs and the matchup, treating picks as independent. Correlated picks hit together more often than these numbers say. Payouts vary by state and by pick type, so set the multiplier to what your app shows.</p></details>
   </section>
 
@@ -252,11 +277,12 @@ function spreadTxt(g){if(g.spread==null)return"";if(g.spread===0)return"Pick'em"
 function toast(t){const el=$("#toast");el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,1800);}
 
 // ---------- state (saved per viewer) ----------
-let state={tab:"match",q:"",pos:"",mkt:"",gm:"",grd:"",be:.542,game:D.games[0]?.id,wonly:false,watch:[],legs:[],mult:{2:3,3:5,4:10,5:20,6:37.5},week:D.week,myTeam:[],rostered:[],cmp:[],fv:"team",rpos:"",showRost:false};
+let state={tab:"match",q:"",pos:"",mkt:"",gm:"",grd:"",be:.542,game:D.games[0]?.id,wonly:false,watch:[],legs:[],mult:{2:3,3:5,4:10,5:20,6:37.5},par:[],stake:10,week:D.week,myTeam:[],rostered:[],cmp:[],fv:"team",rpos:"",showRost:false};
 try{const s=JSON.parse(localStorage.getItem("overlay-v3")||"null");if(s)Object.assign(state,s,{q:""});}catch(e){}
 if(state.week!==D.week){state.legs=[];state.week=D.week;}  // new week, fresh slip
 state.legs=state.legs.filter(l=>PID[l.id]!==undefined);
 if(!GAME[state.game])state.game=D.games[0]?.id;
+state.par=(state.par||[]).filter(l=>GAME[l.game]);
 function save(){try{localStorage.setItem("overlay-v3",JSON.stringify(state));}catch(e){}}
 
 // ---------- odds lines (filled once an Odds API key is added) ----------
@@ -503,9 +529,9 @@ function wireBest(){const b=$("#bestbtn");if(b)b.onclick=()=>{const n=+($("#best
     undoLegs=state.legs.slice();state.legs=legs;save();renderSlip();toast(`Built a ${legs.length}-pick slip`);};
   const nb=$("#bestn");if(nb)nb.onchange=e=>{state.bestN=+e.target.value;save();};
   const u=$("#undobest");if(u)u.onclick=()=>{state.legs=undoLegs||[];undoLegs=null;save();renderSlip();toast("Restored your previous slip");};}
-function renderSlip(){
+function renderSlip(){setTimeout(renderParlay,0);
   const legs=state.legs.map(l=>{const p=D.players[PID[l.id]];const pr=p.props.find(x=>x.stat===l.stat);const c=chanceInfo(p,pr,l.line,l.side);return{...l,p,pr,est:c.p,src:c.src};});
-  const n=legs.length;$("#slipcount").hidden=!n;$("#slipcount").textContent=n;
+  const n=legs.length;const tot=n+(state.par||[]).length;$("#slipcount").hidden=!tot;$("#slipcount").textContent=tot;
   if(!n){$("#sliplegs").innerHTML='<h3>Your picks</h3>'+bestBar()+'<p class="sub">No picks yet. Tap Build my best slip, or open any player on the Props tab, set the line, choose More or Less, and tap Add to slip.</p>';
     $("#slipsum").innerHTML='<h3>Slip value</h3><p class="sub">Add at least two picks.</p>';wireBest();return;}
   $("#sliplegs").innerHTML=`<h3>Your picks</h3>`+bestBar()+legs.map((l,i)=>`<div class="leg"><div style="min-width:0"><button class="linkbtn" data-pi="${PID[l.id]}" data-ki="${l.p.props.indexOf(l.pr)}">${esc(l.p.name)}</button>
@@ -549,6 +575,76 @@ function gamePlayers(list){const order={QB:0,RB:1,WR:2,TE:3};
       return `<button class="propchip" data-pi="${pi}" data-ki="${k}">${esc(pr.stat)} <span class="sub">avg ${pr.avg}</span></button>`;}).join("");
     return `<div class="gprow"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><button class="linkbtn" data-pi="${pi}" data-ki="0">${esc(p.name)}</button><span>${p.status?`<span class="st ${p.status}">${p.status}</span>`:""}</span></div>
       <div class="sub">${p.pos} · ${p.team}</div><div class="propchips">${chips}</div></div>`;}).join("");}
+// ---------- NFL team breakdown + team bets ----------
+const T=D.nflTeams||{};
+const dec=o=>o<0?1+100/(-o):1+o/100;
+function noVig(a,b){const x=imp(a),y=imp(b);return x/(x+y);}
+function nflWin(g){if(g.mlH!=null&&g.mlA!=null)return noVig(g.mlH,g.mlA);if(g.spread!=null)return cdf(g.spread/13.5);return null;}
+function nflBets(g){const L=[];
+  if(g.mlH!=null&&g.mlA!=null){const pH=noVig(g.mlH,g.mlA);L.push({type:"ml",side:"A",label:`${g.away} moneyline`,odds:g.mlA,fair:1-pH},{type:"ml",side:"H",label:`${g.home} moneyline`,odds:g.mlH,fair:pH});}
+  if(g.spread!=null){const hs=-g.spread,pH=g.spreadHOdds!=null&&g.spreadAOdds!=null?noVig(g.spreadHOdds,g.spreadAOdds):.5;
+    L.push({type:"spread",side:"A",line:g.spread,label:`${g.away} ${g.spread>0?"+":""}${g.spread}`,odds:g.spreadAOdds??-110,fair:1-pH},{type:"spread",side:"H",line:hs,label:`${g.home} ${hs>0?"+":""}${hs}`,odds:g.spreadHOdds??-110,fair:pH});}
+  if(g.total!=null){const pO=g.overOdds!=null&&g.underOdds!=null?noVig(g.overOdds,g.underOdds):.5;L.push({type:"total",side:"Over",line:g.total,label:`Over ${g.total}`,odds:g.overOdds??-110,fair:pO},{type:"total",side:"Under",line:g.total,label:`Under ${g.total}`,odds:g.underOdds??-110,fair:1-pO});}
+  return L.map(b=>({...b,game:g.id,key:`${g.id}|${b.type}|${b.side}`}));}
+const inPar=k=>state.par.some(l=>l.key===k);
+function kickDate(g){const [y,m,d]=g.day.split("-").map(Number);const nthSun=(mo,n)=>{const f=new Date(Date.UTC(y,mo-1,1)).getUTCDay();return 1+((7-f)%7)+7*(n-1);};
+  const dst=(m>3&&m<11)||(m===3&&d>=nthSun(3,2))||(m===11&&d<nthSun(11,1));return new Date(`${g.day}T${g.time}:00${dst?"-04:00":"-05:00"}`);}
+function nflTeamBreakdown(g){const H=T[g.home]||{},A=T[g.away]||{};const pH=nflWin(g);const open=kickDate(g)>new Date();
+  const row=(label,k,hiGood=true,fmt=v=>v)=>{const a=A[k],h=H[k];if(a==null||h==null)return"";const better=hiGood?(a>h?"A":h>a?"H":""):(a<h?"A":h<a?"H":"");
+    return `<tr><td>${label}</td><td class="v ${better==="A"?"better":""}">${fmt(a)}${A[k+"Rank"]?` <span class="rk">#${A[k+"Rank"]}</span>`:""}</td><td class="v ${better==="H"?"better":""}">${fmt(h)}${H[k+"Rank"]?` <span class="rk">#${H[k+"Rank"]}</span>`:""}</td></tr>`;};
+  const dots=t=>{const l=(T[t]||{}).last||[];return `<span class="formdots" title="${l.map(x=>`Wk ${x.wk} ${x.won?"W":"L"} ${x.pts}-${x.oppPts} ${x.home?"vs":"@"} ${x.opp}`).join(", ")}">${l.map(x=>`<i class="${x.won?"w":""}"></i>`).join("")}</span>`;};
+  const why=[];const ep=v=>(v>0?"+":"")+v.toFixed(2);
+  if(H.epaPlayRank&&A.epaAllowedRank){const d1=H.epaPlayRank-A.epaAllowedRank,d2=A.epaPlayRank-H.epaAllowedRank;
+    why.push(`<b>${g.home} offense (#${H.epaPlayRank} in efficiency) vs ${g.away} defense (#${A.epaAllowedRank}).</b> ${d1<=-10?`A clear edge for ${g.home}'s offense.`:d1>=10?`${g.away}'s defense has the upper hand.`:"Fairly even."}`);
+    why.push(`<b>${g.away} offense (#${A.epaPlayRank}) vs ${g.home} defense (#${H.epaAllowedRank}).</b> ${d2<=-10?`A clear edge for ${g.away}'s offense.`:d2>=10?`${g.home}'s defense has the upper hand.`:"Fairly even."}`);
+    const passGap=(A.passAllowedRank||16)-(H.passYpgRank||16),rushGap=(A.rushAllowedRank||16)-(H.rushYpgRank||16);
+    if(H.passYpgRank<=10&&A.passAllowedRank>=22)why.push(`<b>${g.home}'s passing game</b> (#${H.passYpgRank}) faces a pass defense that gives up a lot (#${A.passAllowedRank} of 32).`);
+    if(A.passYpgRank<=10&&H.passAllowedRank>=22)why.push(`<b>${g.away}'s passing game</b> (#${A.passYpgRank}) faces a pass defense that gives up a lot (#${H.passAllowedRank} of 32).`);
+    if(H.rushYpgRank<=10&&A.rushAllowedRank>=22)why.push(`<b>${g.home}'s run game</b> (#${H.rushYpgRank}) faces a weak run defense (#${A.rushAllowedRank}).`);
+    if(A.rushYpgRank<=10&&H.rushAllowedRank>=22)why.push(`<b>${g.away}'s run game</b> (#${A.rushYpgRank}) faces a weak run defense (#${H.rushAllowedRank}).`);}
+  for(const [t,X] of [[g.away,A],[g.home,H]]){const tm=X.take-X.give;if(X.games&&Math.abs(tm)>=4)why.push(`<b>${t} is ${tm>0?"+":""}${tm} in turnovers</b> this season. ${tm>0?"Takeaways help, but they're hard to repeat week to week.":"Giveaways are hurting them, and they tend to even out over time."}`);}
+  for(const [k,t] of [["Away",g.away],["Home",g.home]]){const qb=g["qb"+k],last=g["qb"+k+"Last"];if(qb&&last&&norm(qb)!==norm(last))why.push(`<b>QB change for ${t}:</b> ${esc(qb)} is expected to start instead of ${esc(last)}. Lines usually adjust, but the offense's numbers above came mostly with the other QB.`);}
+  for(const t of [g.away,g.home]){const outs=(D.injuries[t]||[]).filter(x=>x.status==="Out"&&["QB","RB","WR","TE","T","G","C","CB","S","DE","LB","DT"].includes(x.pos));const key=outs.filter(x=>["QB","WR","RB","TE","CB","DE"].includes(x.pos)).slice(0,4);
+    if(key.length)why.push(`<b>${t} missing:</b> ${key.map(x=>`${esc(x.name)} (${x.pos})`).join(", ")}${outs.length>key.length?` and ${outs.length-key.length} more`:""}.`);}
+  if(g.restAway<=5||g.restHome<=5)why.push(`<b>Short rest:</b> ${[g.restAway<=5?g.away:"",g.restHome<=5?g.home:""].filter(Boolean).join(" and ")} played within the last 5 days.`);
+  if(g.wind!=null&&g.wind>=15)why.push(`<b>Wind ${g.wind} mph:</b> strong wind cuts passing and kicking, which tends to favor the under.`);
+  if(g.div)why.push(`<b>Division game:</b> these teams know each other well, and division games tend to be a little closer than the spread suggests.`);
+  let rough="";
+  if(H.ppg!=null&&A.ppg!=null&&g.spread!=null){const ptsH=(H.ppg+A.oppg)/2+1,ptsA=(A.ppg+H.oppg)/2-1;
+    rough=`<div class="panel" style="margin-top:12px"><h3>Rough score from season averages</h3><p><b>${g.home} ${ptsH.toFixed(0)}, ${g.away} ${ptsA.toFixed(0)}</b> (each team's points scored, averaged with what the opponent allows, plus home field). Market: ${g.spread>0?g.home:g.away} by ${Math.abs(g.spread)}, total ${g.total}.</p>
+      <p class="sub">Context, not a pick: when we tested a simple team model like this on 2021–2025 games, it did <b>not</b> beat the betting lines. Use the matchup notes above to decide which way you lean, and trust the market's win chance.</p></div>`;}
+  const bets=nflBets(g);
+  return `<div class="gdetail" style="margin-top:12px">
+    <div class="panel"><h3>Bets${pH!=null?` · ${g.home} ${Math.round(pH*100)}% to win`:""}</h3>${bets.length?`<div class="betbtns">${bets.map(b=>`<button class="betbtn" data-bet="${b.key}" aria-pressed="${inPar(b.key)}" ${open?"":"disabled"}><span>${esc(b.label)}</span><b>${fmtOdds(b.odds)}</b></button>`).join("")}</div>
+      <p class="sub" style="margin-top:8px">${open?"Tap to add to a sportsbook parlay on the Slip tab. Odds are the market consensus from nflverse; check your book before betting.":"This game has started."}</p>`:'<p class="sub">No lines yet.</p>'}</div>
+    <div class="panel" style="min-width:0"><h3>Team matchup</h3><div style="overflow-x:auto"><table class="cmp"><thead><tr><th></th><th>${g.away}</th><th>${g.home}</th></tr></thead><tbody>
+      <tr><td>Record</td><td class="v">${A.record||"–"}</td><td class="v">${H.record||"–"}</td></tr>
+      <tr><td>Last 5</td><td class="v">${dots(g.away)}</td><td class="v">${dots(g.home)}</td></tr>
+      ${row("Points scored","ppg")}${row("Points allowed","oppg",false)}${row("Offense EPA/play","epaPlay",true,ep)}${row("Defense EPA/play","epaAllowed",false,ep)}
+      ${row("Pass yds/game","passYpg")}${row("Rush yds/game","rushYpg")}${row("Pass yds allowed","passAllowed",false)}${row("Rush yds allowed","rushAllowed",false)}
+      <tr><td>Turnovers (take/give)</td><td class="v">${A.take??"–"}/${A.give??"–"}</td><td class="v">${H.take??"–"}/${H.give??"–"}</td></tr>
+      <tr><td>Expected points</td><td class="v">${g.impAway??"–"}</td><td class="v">${g.impHome??"–"}</td></tr></tbody></table></div>
+      <p class="sub" style="margin-top:6px">Green = better side. # = rank of 32. EPA/play measures how much each play helps the offense score, the best single efficiency stat.</p></div></div>
+    <div class="panel" style="margin-top:12px"><h3>What matters in this game</h3><ul class="why">${why.map(w=>`<li>${w}</li>`).join("")||"<li>Nothing unusual stands out.</li>"}</ul></div>
+    ${rough}`;}
+function parCorr(par){const out=[];const by={};for(const l of par)(by[l.game]=by[l.game]||[]).push(l);
+  for(const [gid,ls] of Object.entries(by)){if(ls.length<2)continue;const g=GAME[gid]||PKG[gid];const ml=ls.find(l=>l.type==="ml"),sp=ls.find(l=>l.type==="spread"),to=ls.find(l=>l.type==="total");
+    if(ml&&sp&&ml.side===sp.side)out.push({k:"plus",t:`${g.away} @ ${g.home}: the moneyline and spread on the same team are strongly linked. Many books won't allow this combo or price it in.`});
+    else if(ml&&sp)out.push({k:"minus",t:`${g.away} @ ${g.home}: one team's moneyline with the other team's spread can both hit only if the favorite wins by less than the spread.`});
+    if(to&&(ml||sp))out.push({k:"plus",t:`${g.away} @ ${g.home}: a total with a side from the same game is mildly linked.`});}
+  return out;}
+const PKG={};
+function renderParlay(){const par=state.par;
+  if(!par.length){$("#parlegs").innerHTML='<h3>Sportsbook parlay</h3><p class="sub">No legs yet. Open a game on the Games tab and tap a spread, total or moneyline.</p>';$("#parsum").innerHTML='<h3>Parlay value</h3><p class="sub">Add legs to see the payout.</p>';return;}
+  $("#parlegs").innerHTML='<h3>Sportsbook parlay</h3>'+par.map((l,i)=>{const g=GAME[l.game];return `<div class="leg"><div style="min-width:0"><b>${esc(l.label)}</b><div class="sub">${g?`${g.away} @ ${g.home} · ${kick(g)}`:""}</div></div><div class="legr"><b class="edge">${fmtOdds(l.odds)}</b><span class="edge cold">${Math.round(l.fair*100)}%</span><button class="x" data-rmp="${i}" aria-label="Remove">✕</button></div></div>`;}).join("")
+    +parCorr(par).map(c=>`<div class="corr ${c.k}">${c.k==="plus"?"▲ ":"▼ "}${esc(c.t)}</div>`).join("")+`<div style="display:flex;gap:8px;margin-top:12px"><button class="btn" id="clearpar">Clear</button><button class="btn" id="copypar">Copy</button></div>`;
+  const d=par.reduce((s,l)=>s*dec(l.odds),1),fair=par.reduce((s,l)=>s*l.fair,1);const am=d>=2?Math.round((d-1)*100):Math.round(-100/(d-1));
+  $("#parsum").innerHTML=`<h3>Parlay value</h3><label for="stake" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;flex-direction:column;gap:4px">Stake ($)<input type="number" id="stake" min="1" step="1" value="${state.stake}"></label>
+    <div class="sum"><div><span>Parlay odds</span><b>${am>0?"+":""}${am}</b></div><div><span>Pays</span><b>$${(state.stake*d).toFixed(2)}</b></div><div><span>Fair chance</span><b>${(fair*100).toFixed(1)}%</b></div><div><span>Expected return</span><b style="color:${fair*d>=1?"var(--pos)":"var(--neg)"}">${fair*d>=1?"+":""}${((fair*d-1)*100).toFixed(0)}%</b></div></div>
+    <p class="sub">Consensus odds at the last refresh; your book's prices will differ a little. Fair chance removes the fee from each leg and treats legs as independent. Every leg carries the book's fee, so parlays usually return less than they cost on average.</p>`;
+  $("#stake").onchange=e=>{const v=parseFloat(e.target.value);if(v>0){state.stake=v;save();renderParlay();}};
+  $("#clearpar").onclick=()=>{state.par=[];save();renderSlip();renderGames();};
+  $("#copypar").onclick=()=>{const t=par.map(l=>`${l.label} (${fmtOdds(l.odds)})`).join("\n")+`\nParlay ${am>0?"+":""}${am}`;(navigator.clipboard?.writeText(t)||Promise.reject()).then(()=>toast("Parlay copied"),()=>toast("Copy not allowed here"));};}
 function renderGames(){
   $("#gamelist").innerHTML=D.games.map(g=>{
     const all=[...(D.injuries[g.away]||[]),...(D.injuries[g.home]||[])];const outs=all.filter(x=>x.status==="Out").length;
@@ -565,6 +661,7 @@ function renderGames(){
   const env=k=>{const t=g[k.toLowerCase()],qb=g["qb"+k],last=g["qb"+k+"Last"];return `<div class="injrow"><div><div class="pname">${NAMES[t]}</div><div class="sub">QB: ${esc(qb||"–")}${qb&&last&&norm(qb)!==norm(last)?` (replacing ${esc(last)})`:""} · ${g["rest"+k]} days rest</div></div><span class="flag">${g["imp"+k]??"–"} pts</span></div>`;};
   $("#gamedetail").innerHTML=`<h2>${NAMES[g.away]} at ${NAMES[g.home]}</h2>
     <div class="sub">${kick(g)}${g.spread!=null?" · "+spreadTxt(g):""}${g.total?" · O/U "+g.total:""}</div>
+    ${nflTeamBreakdown(g)}
     <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:8px;margin-top:14px"><h3 style="font-family:var(--display);text-transform:uppercase;font-size:22px;margin:0">Players in this game</h3>
       <button class="btn" id="gameprops" data-game="${g.id}">See these props on the Props tab ›</button></div>
     <div class="gplayers">${[g.away,g.home].map(t=>`<div class="panel"><h3>${NAMES[t]}</h3>${gamePlayers(tracked.filter(o=>o.p.team===t))||'<p class="sub">No tracked players.</p>'}</div>`).join("")}</div>
@@ -765,7 +862,7 @@ document.addEventListener("click",e=>{
 });
 
 // ---------- wiring ----------
-$("#weeklabel").textContent=`NFL · WEEK ${D.week}`;
+$("#weeklabel").textContent=`WEEK ${D.week}`;
 const injWeek=Math.max(0,...Object.values(D.injuries).flat().map(x=>x.week));
 $("#freshness").textContent=`Stats thru Wk ${D.statsThrough}`;$("#freshness").style.color="var(--muted)";$("#freshness").style.background="var(--raised)";
 $("#matchtitle").textContent=`Week ${D.week} props`;
@@ -798,6 +895,10 @@ document.addEventListener("click",e=>{
   const rc=e.target.closest("[data-rcmp]");if(rc){state.cmp=state.cmp.filter(x=>x!==rc.dataset.rcmp);save();renderFantasy();return;}
   const tk=e.target.closest("[data-taken]");if(tk){const id=tk.dataset.taken;state.rostered=state.rostered.includes(id)?state.rostered.filter(x=>x!==id):[...state.rostered,id];save();renderFantasy();return;}
   const rm=e.target.closest("[data-rm]");if(rm){state.legs.splice(+rm.dataset.rm,1);save();renderSlip();return;}
+  const rp=e.target.closest("[data-rmp]");if(rp){state.par.splice(+rp.dataset.rmp,1);save();renderSlip();renderGames();return;}
+  const bt=e.target.closest("[data-bet]");if(bt&&!bt.disabled){const k=bt.dataset.bet;const gid=k.split("|")[0];
+    if(inPar(k))state.par=state.par.filter(l=>l.key!==k);else{const b=nflBets(GAME[gid]).find(x=>x.key===k);state.par=state.par.filter(l=>!(l.game===gid&&l.type===b.type));state.par.push(b);toast(`Added ${b.label} ${fmtOdds(b.odds)}`);}
+    save();renderSlip();renderGames();return;}
   const t=e.target.closest("tr.click,.pcard,.linkbtn,.propchip,[data-switch]");if(t&&t.dataset.pi!==undefined){openPlayer(+t.dataset.pi,+t.dataset.ki);return;}
   const gp=e.target.closest("#gameprops");if(gp){state.gm=gp.dataset.game;$("#gm").value=state.gm;save();renderMatch();setTab("match");window.scrollTo(0,0);return;}
   const g=e.target.closest(".game");if(g){state.game=g.dataset.g;save();renderGames();const gd=$("#gamedetail");if(gd)gd.scrollIntoView({block:"start"});}
