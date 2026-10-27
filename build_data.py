@@ -474,7 +474,7 @@ def _credits_left_guess():
     try:
         prev = json.load(open(PREV_PATH))
         o = prev.get("odds") or {}
-        last = o.get("fetched") or ""
+        last = o.get("fetched") or o.get("fetchedLast") or ""
         if o.get("remaining") is None or last[:7] != datetime.now(timezone.utc).strftime("%Y-%m"):
             return None
         return int(o["remaining"])
@@ -500,7 +500,11 @@ def odds_block(wk, players):
                 return {"lines": prev["lines"], "odds": o}
         except Exception as e:
             print("could not reuse previous lines:", e, file=sys.stderr)
-        return {"lines": [], "odds": {"status": "no key"}}
+        try:  # new week: no lines yet, but keep the credit count so the page and the credit check still know it
+            po = (json.load(open(PREV_PATH)).get("odds") or {}) if PREV_PATH and os.path.exists(PREV_PATH) else {}
+            return {"lines": [], "odds": {"status": "no lines this week yet", "remaining": po.get("remaining"), "fetchedLast": po.get("fetched") or po.get("fetchedLast")}}
+        except Exception:
+            return {"lines": [], "odds": {"status": "no key"}}
     try:
         lines = fetch_lines(wk, players)
         status = "ok" if lines else ("error" if ODDS_STATUS["errors"] else "no lines yet")
