@@ -29,3 +29,10 @@ GitHub's scheduled runs can start a few hours late when GitHub is busy.
 - Box scores and schedule: sportsdataverse (`nba_build.py`), refreshed with every run.
 - Lines (DraftKings, via ESPN) and the injury report: ESPN's public site API. Lines usually appear the morning of each game, so a daily ~10:37am Pacific run picks them up.
 - No Odds API credits are used for NBA.
+
+## Pages
+- `index.html`: **Today**: best NFL props, NBA games and leans, injury news, My bets (graded automatically) and Overlay's own track record.
+- `nfl.html`: NFL props, slip, fantasy, pick'em, defenses, games.
+- `nba.html`: NBA games, props, slip, defenses.
+
+`tracker.py` logs every pick the site rates at or above break-even before kickoff (NFL props ≥54%, NBA leans) into `history.json`, grades them from box scores, and writes `today.json`. `python assemble.py all` rebuilds all three pages. Saved bets live in each browser's local storage. "Share" makes a link that loads your slip on a friend's phone. Add to Home Screen installs it like an app.

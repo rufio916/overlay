@@ -1,0 +1,160 @@
+
+<style>
+.tgrid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:900px){.tgrid{grid-template-columns:1fr}}
+.tsec{display:flex;flex-direction:column;gap:16px;min-width:0}
+.panel h3 .sub{font-family:var(--body);text-transform:none;letter-spacing:0;font-weight:400;font-size:12px}
+.pickrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);text-decoration:none;color:inherit}
+.pickrow:first-of-type{border-top:0}
+.pickrow:hover .pname{text-decoration:underline}
+.pickrow .r{display:flex;gap:8px;align-items:center;flex-shrink:0}
+.big2{font-family:var(--mono);font-weight:600;font-size:16px}
+.leanchip{font-size:11px;font-weight:700;letter-spacing:.04em;padding:2px 7px;border-radius:4px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.newsrow{padding:8px 0;border-top:1px solid var(--line);font-size:13px}
+.newsrow:first-of-type{border-top:0}
+.rec{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0}
+.rec div{background:var(--raised);border-radius:6px;padding:10px}
+.rec b{display:block;font-family:var(--mono);font-size:20px}
+.rec span{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.bet{border-top:1px solid var(--line);padding:10px 0}
+.bet:first-of-type{border-top:0}
+.bet .top{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.res{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:4px;white-space:nowrap}
+.res.win{background:var(--pos-soft);color:var(--pos)} .res.loss{background:var(--neg-soft);color:var(--neg)} .res.pending{background:var(--raised);color:var(--muted)} .res.void,.res.push{background:var(--warn-soft);color:var(--warn)}
+.legline{font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:3px}
+.legline i{font-style:normal;font-weight:700}
+.legline i.win{color:var(--pos)} .legline i.loss{color:var(--neg)}
+.quick{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 18px}
+.quick a{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 14px;text-decoration:none}
+.quick a:hover{border-color:var(--accent)}
+</style>
+<header class="top">
+  <div class="topin">
+    <div class="brand">Over<span>lay</span></div>
+    <nav class="sport" aria-label="Sport"><a href="./" aria-current="page">Today</a><a href="nfl.html">NFL</a><a href="nba.html">NBA</a></nav>
+    <div class="week" id="weeklabel"></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <h2 id="ttitle">Today</h2>
+  <p class="lede" id="tlede"></p>
+  <div class="quick"><a href="nfl.html?tab=match">NFL props</a><a href="nba.html?tab=games">NBA games</a><a href="nfl.html?tab=pickem">Pick'em</a><a href="nfl.html?tab=fantasy">Fantasy</a><a href="#mybets">My bets</a><a href="#record">Overlay's record</a></div>
+  <div class="tgrid">
+    <div class="tsec">
+      <div class="panel" id="nflpicks"></div>
+      <div class="panel" id="nbagames"></div>
+      <div class="panel" id="nbaprops"></div>
+    </div>
+    <div class="tsec">
+      <div class="panel" id="news"></div>
+      <div class="panel" id="mybets"></div>
+      <div class="panel" id="record"></div>
+    </div>
+  </div>
+</main>
+<footer class="wrap" style="padding-block:24px 32px"><p class="note"><span id="updated"></span> <span id="credits"></span> Data: nflverse, sportsdataverse, ESPN, The Odds API (NFL props only). For entertainment and research only. Bet responsibly.</p></footer>
+<div class="toast" id="toast" hidden></div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D=JSON.parse(document.getElementById("data").textContent);
+const $=s=>document.querySelector(s);
+const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const norm=s=>String(s||"").toLowerCase().replace(/ jr| sr| iii| ii/g,"").replace(/[^a-z]/g,"");
+const fmtOdds=o=>o==null?"–":(o>0?"+"+o:String(o));
+const dec=o=>o<0?1+100/(-o):1+o/100;
+const pct=x=>x==null?"–":Math.round(x*100)+"%";
+function toast(t){const el=$("#toast");el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,1800);}
+const ESPNNFL={LA:"lar",WAS:"wsh"};
+const logo=(sport,t,s=20)=>t?`<img class="logo" src="https://a.espncdn.com/i/teamlogos/${sport}/500/${sport==="nfl"?(ESPNNFL[t]||t.toLowerCase()):t.toLowerCase()}.png" alt="" width="${s}" height="${s}" loading="lazy" onerror="this.remove()">`:"";
+const hs=p=>p&&p.img?`<img class="hs" src="${esc(p.img)}" alt="" loading="lazy" onerror="this.remove()">`:"";
+const when=iso=>new Date(iso).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit"});
+const ago=iso=>{const m=(Date.now()-new Date(iso))/6e4;return m<60?`${Math.max(1,Math.round(m))} min ago`:m<1440?`${Math.round(m/60)} hr ago`:`${Math.round(m/1440)} d ago`;};
+
+// ---------- header ----------
+const todayPT=new Date().toLocaleDateString("en-CA",{timeZone:"America/Los_Angeles"});
+const nbaToday=D.nbaGames.filter(g=>g.day===todayPT);
+$("#weeklabel").textContent=new Date().toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}).toUpperCase();
+$("#ttitle").textContent=new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+const nextNfl=D.nflGames.filter(g=>new Date(g.kickoff)>new Date()).sort((a,b)=>new Date(a.kickoff)-new Date(b.kickoff))[0];
+$("#tlede").textContent=`${nbaToday.length?`${nbaToday.length} NBA game${nbaToday.length>1?"s":""} today. `:"No NBA games today. "}${nextNfl?`Next NFL game: ${nextNfl.away} @ ${nextNfl.home}, ${when(nextNfl.kickoff)} (Week ${D.nflWeek}).`:""}`;
+$("#updated").textContent="Updated "+new Date(D.generated).toLocaleString("en-US",{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+".";
+if(D.credits!=null)$("#credits").textContent=`Odds credits left: ${D.credits}.`;
+
+// ---------- best NFL props ----------
+(function(){const L=D.nflTop||[];let h=`<h3>Best NFL props <span class="sub">· sportsbooks' chance to hit, Week ${D.nflWeek}</span></h3>`;
+  if(!L.length)h+=`<p class="sub">${D.nflLinesAt?"No props above the 54% break-even right now.":"This week's PrizePicks lines arrive with Thursday's ~10 AM pull, then again Saturday."} <a href="nfl.html?tab=match" style="color:var(--accent)">Open NFL props ›</a></p>`;
+  else h+=L.map(r=>`<a class="pickrow" href="nfl.html?open=${encodeURIComponent(norm(r.name)+"|"+r.stat)}"><div class="who">${hs(r)}<div><div class="pname plink">${esc(r.name)}</div><div class="sub">${r.pos} · ${r.team} vs ${r.opp} · ${when(r.kickoff)}</div></div></div>
+    <div class="r"><span class="big2">${esc(r.stat)} ${r.line}</span><span class="pick ${r.side==="More"?"more":"less"}">${r.side}</span><span class="edge ${r.chance>=.542?"hot":"cold"}">${pct(r.chance)}</span></div></a>`).join("")+`<p class="sub" style="margin-top:6px">Lines as of ${D.nflLinesAt?when(D.nflLinesAt):"–"}. Green beats a 6-pick Flex (54%). Check the app before playing.</p>`;
+  $("#nflpicks").innerHTML=h;})();
+
+// ---------- NBA games + leans ----------
+(function(){const G=D.nbaGames.filter(g=>g.day===todayPT||!nbaToday.length);let h=`<h3>NBA ${nbaToday.length?"today":"next up"} <span class="sub">· win chance from DraftKings, Overlay's leans</span></h3>`;
+  if(!G.length){$("#nbagames").innerHTML=h+'<p class="sub">No games scheduled.</p>';return;}
+  h+=G.map(g=>{const live=g.state==="in",fin=g.state==="post";const o=g.odds||{};
+    const leans=(g.leans||[]).map(l=>`<span class="leanchip" title="Overlay's rough number is ${l.by} points off the line">Lean ${l.type==="spread"?`${l.team} ${l.line>0?"+":""}${l.line}`:`${l.side} ${l.line}`}</span>`).join(" ");
+    return `<a class="pickrow" href="nba.html?game=${g.id}"><div><div class="pname">${logo("nba",g.away)} ${g.away} @ ${logo("nba",g.home)} ${g.home}</div><div class="sub">${fin||live?esc(g.detail):when(g.start)}${o.spreadH!=null?` · ${o.spreadH<0?g.home+" "+o.spreadH:g.away+" -"+o.spreadH} · O/U ${o.total}`:" · lines not posted yet"}</div>${leans?`<div style="margin-top:4px">${leans}</div>`:""}</div>
+      <div class="r">${fin||live?`<span class="big2">${g.scoreA}-${g.scoreH}</span>`:g.pH!=null?`<span class="sub">${g.pH>=.5?g.home:g.away}</span><span class="big2">${pct(Math.max(g.pH,1-g.pH))}</span>`:""}</div></a>`;}).join("")
+    +`<p class="sub" style="margin-top:6px">Leans show up only when Overlay's rough score is 3+ points off the spread or 5+ off the total. They're tracked below so you can see whether they hold up.</p>`;
+  $("#nbagames").innerHTML=h;})();
+
+// ---------- NBA best matchup props ----------
+(function(){const L=D.nbaTop||[];let h=`<h3>NBA matchups to look at <span class="sub">· biggest boost from the matchup and pace</span></h3>`;
+  h+=L.length?L.map(r=>`<a class="pickrow" href="nba.html?open=${encodeURIComponent(r.id+"|"+r.stat)}"><div class="who">${hs(r)}<div><div class="pname plink">${esc(r.name)}</div><div class="sub">${r.pos} · ${r.team} ${r.home?"vs":"@"} ${r.opp}${r.rank?` · defense #${r.rank} of 30`:""}</div></div></div>
+    <div class="r"><span class="sub">${esc(r.stat)}</span><span class="big2">${r.proj}</span><span class="delta up">+${(r.proj-r.base).toFixed(1)}</span></div></a>`).join("")+`<p class="sub" style="margin-top:6px">Projection vs his usual. No PrizePicks lines for NBA here; type the line on the player's page to check it.</p>`:'<p class="sub">No games on the board.</p>';
+  $("#nbaprops").innerHTML=h;})();
+
+// ---------- injury news ----------
+(function(){const n=D.injuryNews||{nfl:[],nba:[]};const items=[...n.nfl.map(x=>({...x,sp:"nfl"})),...n.nba.map(x=>({...x,sp:"nba"}))].sort((a,b)=>new Date(b.at)-new Date(a.at)).slice(0,10);
+  let h='<h3>Injury news <span class="sub">· changes since earlier refreshes</span></h3>';
+  h+=items.length?items.map(x=>`<div class="newsrow">${logo(x.sp,x.team,18)} <b>${esc(x.name)}</b> <span class="sub">(${x.team})</span>: ${esc(x.was)} → <b>${esc(x.status)}</b> <span class="sub">· ${ago(x.at)}</span></div>`).join(""):'<p class="sub">No status changes yet. This fills in as the daily refreshes spot new reports.</p>';
+  const out=D.nbaInjuries||[];if(out.length)h+=`<div class="sec">NBA players out or questionable today</div>`+out.slice(0,8).map(x=>`<div class="newsrow">${logo("nba",x.team,18)} <b>${esc(x.name)}</b> <span class="sub">(${x.team}, ${x.pts} pts, ${x.min} min)</span>: <b>${esc(x.status)}</b>${x.note?`<div class="sub">${esc(x.note)}</div>`:""}</div>`).join("");
+  $("#news").innerHTML=h;})();
+
+// ---------- my bets (saved on this device, graded from results) ----------
+let BETS=[];try{BETS=JSON.parse(localStorage.getItem("overlay-bets")||"[]");}catch(e){}
+function saveBets(){try{localStorage.setItem("overlay-bets",JSON.stringify(BETS));}catch(e){}}
+const R=D.results||{};
+function gradeLeg(l,sport,kind){
+  if(kind==="parlay"){const gm=(sport==="nba"?R.nbaGames:R.nflGames)||{};const f=gm[l.game];if(!f)return null;const [aw,hm,sa,sh]=f;
+    if(l.type==="ml"){if(sa===sh)return"push";return(l.side==="H")===(sh>sa)?"win":"loss";}
+    if(l.type==="spread"){const m=(l.side==="H"?sh-sa:sa-sh)+l.line;return m===0?"push":m>0?"win":"loss";}
+    const x=(sa+sh-l.line)*(l.side==="Over"?1:-1);return x===0?"push":x>0?"win":"loss";}
+  const key=norm(l.name)+"|"+l.stat;
+  if(sport==="nfl"){const fin=(R.nflGames||{})[l.game];if(!fin)return null;const e=((R.nfl||{})[key]||[]).find(x=>x[0]===l.week);if(!e)return"void";const v=e[1];l.actual=v;return v===l.line?"push":(v>l.line)===(l.side==="More")?"win":"loss";}
+  const fin=(R.nbaGames||{})[String(l.game)];if(!fin)return null;const e=((R.nba||{})[key]||[]).find(x=>String(x[2])===String(l.game));if(!e)return"void";const v=e[1];l.actual=v;return v===l.line?"push":(v>l.line)===(l.side==="More")?"win":"loss";}
+function gradeBet(b){if(b.result)return;let pending=false;
+  for(const l of b.legs){if(l.res)continue;const r=gradeLeg(l,l.sport||b.sport,b.kind);if(r)l.res=r;else pending=true;}
+  if(b.legs.some(l=>l.res==="loss")){b.result="loss";b.ret=0;return;}
+  if(pending)return;
+  const live=b.legs.filter(l=>l.res==="win");if(!live.length){b.result="void";b.ret=b.stake;return;}
+  if(b.kind==="parlay"){b.result="win";b.ret=b.stake*live.reduce((s,l)=>s*dec(l.odds),1);}
+  else{const POWER={2:3,3:5,4:10,5:20,6:37.5};const m=live.length===b.legs.length?(b.mult||POWER[live.length]):POWER[live.length]||1;b.result="win";b.ret=b.stake*m;}}
+BETS.forEach(gradeBet);saveBets();
+function renderBets(){let h='<h3 id="mybets-h">My bets <span class="sub">· saved on this device, graded automatically</span></h3>';
+  if(!BETS.length){h+='<p class="sub">Nothing saved yet. On the NFL or NBA Slip tab, tap <b>Save to My bets</b> after you place a slip or parlay. Overlay grades it after the games.</p>';$("#mybets").innerHTML=h;return;}
+  const done=BETS.filter(b=>b.result&&b.result!=="void");const w=done.filter(b=>b.result==="win").length;const staked=done.reduce((s,b)=>s+(+b.stake||0),0),ret=done.reduce((s,b)=>s+(b.ret||0),0);
+  h+=`<div class="rec"><div><span>Record</span><b>${w}-${done.length-w}</b></div><div><span>Staked</span><b>$${staked.toFixed(0)}</b></div><div><span>Profit</span><b style="color:${ret-staked>=0?"var(--pos)":"var(--neg)"}">${ret-staked>=0?"+":"−"}$${Math.abs(ret-staked).toFixed(0)}</b></div></div>`;
+  h+=BETS.slice().reverse().map(b=>{const st=b.result||"pending";const pay=b.kind==="parlay"?b.stake*b.legs.reduce((s,l)=>s*dec(l.odds),1):b.stake*(b.mult||1);
+    return `<div class="bet"><div class="top"><div><b>${b.sport.toUpperCase()} ${b.kind==="parlay"?`${b.legs.length}-leg parlay`:`${b.legs.length}-pick PrizePicks`}</b> <span class="sub">· $${b.stake} to win $${pay.toFixed(0)} · saved ${new Date(b.created).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span></div>
+      <div style="display:flex;gap:6px;align-items:center"><span class="res ${st}">${st}</span><button class="x" data-delbet="${b.id}" aria-label="Delete">✕</button></div></div>
+      ${b.legs.map(l=>`<div class="legline"><i class="${l.res||""}">${l.res==="win"?"✓":l.res==="loss"?"✗":l.res?"–":"·"}</i> ${esc(b.kind==="parlay"?`${l.label} (${fmtOdds(l.odds)})`:`${l.name} ${l.side} ${l.line} ${l.stat}`)}${l.actual!=null?` <span>(${l.actual})</span>`:""}</div>`).join("")}</div>`;}).join("");
+  h+='<p class="sub" style="margin-top:8px">PrizePicks payouts use the multiplier you set on the Slip tab (Power play). Flex payouts aren\'t graded. Bets live on this phone or computer only.</p>';
+  $("#mybets").innerHTML=h;}
+renderBets();
+document.addEventListener("click",e=>{const d=e.target.closest("[data-delbet]");if(d){BETS=BETS.filter(b=>String(b.id)!==d.dataset.delbet);saveBets();renderBets();toast("Deleted");}});
+
+// ---------- Overlay's own record ----------
+(function(){const T=D.track||{};const nf=T.nfl||{},nb=T.nba||{};const rec=s=>s&&s.n?`${s.w}-${s.l}`:"0-0";const p=s=>s&&s.n?pct(s.pct):"–";
+  let h=`<h3 id="record-h">Overlay's track record <span class="sub">· every pick logged before kickoff, graded after</span></h3>`;
+  h+=`<div class="sec">NFL props that beat the 54% break-even</div><div class="rec"><div><span>Record</span><b>${rec(nf)}</b></div><div><span>Hit rate</span><b>${p(nf)}</b></div><div><span>Pending</span><b>${nf.pending||0}</b></div></div>`;
+  if(nf.buckets&&nf.n)h+=`<div style="overflow-x:auto"><table class="mini"><thead><tr><th>Rated</th><th>Picks</th><th>Expected</th><th>Actual</th></tr></thead><tbody>${nf.buckets.map(b=>`<tr><td>${b.label}</td><td>${b.n}</td><td>${b.exp!=null?pct(b.exp):"–"}</td><td>${b.n?pct(b.pct):"–"}</td></tr>`).join("")}</tbody></table></div>`;
+  if(nf.byWeek)h+=`<p class="sub">${Object.entries(nf.byWeek).map(([w,s])=>`Week ${w}: ${s.w}-${s.l}`).join(" · ")}</p>`;
+  h+=`<div class="sec">NBA leans (rough team model vs DraftKings)</div><div class="rec"><div><span>Spreads</span><b>${rec(nb.spread)}</b></div><div><span>Totals</span><b>${rec(nb.total)}</b></div><div><span>Pending</span><b>${nb.pending||0}</b></div></div>`;
+  h+=`<p class="sub">Small samples swing a lot: 30 picks at a true 56% can easily go 12-18 or 21-9. Give it a few hundred picks before trusting the numbers either way. Weeks 6–7 were back-filled from the lines the site showed those Saturdays.</p>`;
+  const rc=(T.recent||[]).slice(0,12);
+  if(rc.length)h+=`<details class="inj"><summary>Recent graded picks ›</summary>${rc.map(x=>`<div class="legline"><i class="${x.result}">${x.result==="win"?"✓":x.result==="loss"?"✗":"–"}</i> ${x.sport==="nfl"?`${esc(x.name)} ${x.side} ${x.line} ${esc(x.stat)} (${pct(x.chance)}) → ${x.actual??"–"}`:`${x.away} @ ${x.home}: ${x.type==="spread"?`${x.team} ${x.line>0?"+":""}${x.line}`:`${x.side} ${x.line}`} → ${esc(x.final||"")}`}</div>`).join("")}</details>`;
+  $("#record").innerHTML=h;})();
+if(location.hash){const el=document.getElementById(location.hash.slice(1));if(el)el.scrollIntoView();}
+</script>

@@ -158,7 +158,8 @@ def build(week=None, local_dir=None):
                            "nWith": len(w_), "nWithout": len(wo),
                            "useWith": avg_of(w_, "u"), "useWithout": avg_of(wo, "u"),
                            "statWith": avg_of(w_, main), "statWithout": avg_of(wo, main), "stat": MARKETS[pos][0][0]})
-        return ({"id": pid, "name": name, "pos": pos, "team": team, "opp": opp,
+        img = logs.headshot_url.dropna().iloc[-1] if "headshot_url" in logs and logs.headshot_url.notna().any() else ""
+        return ({"id": pid, "name": name, "pos": pos, "team": team, "opp": opp, "img": img,
                         "game": game_id, "status": status_of.get((key(name), team), ""),
                         "props": props, "usage": usage, "splits": splits})
 

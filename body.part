@@ -165,11 +165,18 @@ ul.why li{line-height:1.45}
 .formdots i.w{background:var(--pos)}
 .daygroup{font-family:var(--display);font-weight:700;font-size:18px;text-transform:uppercase;letter-spacing:.04em;margin:18px 0 8px;color:var(--muted)}
 .lean{font-weight:600}
+/* logos + headshots */
+.who{display:flex;gap:10px;align-items:center;min-width:0}
+.who>div{min-width:0}
+.hs{width:36px;height:36px;border-radius:50%;object-fit:cover;object-position:top;background:var(--raised);flex-shrink:0;border:1px solid var(--line)}
+.hs.lg{width:64px;height:64px}
+.logo{object-fit:contain;vertical-align:-5px;flex-shrink:0}
+.matchup .logo{vertical-align:-4px;margin-right:2px}
 </style>
 <header class="top">
   <div class="topin">
     <div class="brand">Over<span>lay</span></div>
-    <nav class="sport" aria-label="Sport"><a href="./" aria-current="page">NFL</a><a href="nba.html">NBA</a></nav>
+    <nav class="sport" aria-label="Sport"><a href="./">Today</a><a href="nfl.html" aria-current="page">NFL</a><a href="nba.html">NBA</a></nav>
     <div class="week" id="weeklabel"></div>
     <div class="sample" id="freshness"></div>
   </div>
@@ -270,6 +277,9 @@ const NAMES={ARI:"Arizona",ATL:"Atlanta",BAL:"Baltimore",BUF:"Buffalo",CAR:"Caro
 const $=s=>document.querySelector(s);
 const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const GAME=Object.fromEntries(D.games.map(g=>[g.id,g]));
+const ESPNNFL={LA:"lar",WAS:"wsh"};
+const logo=(t,s=22)=>t?`<img class="logo" src="https://a.espncdn.com/i/teamlogos/nfl/500/${ESPNNFL[t]||t.toLowerCase()}.png" alt="" width="${s}" height="${s}" loading="lazy" onerror="this.remove()">`:"";
+const hs=(p,size="")=>p&&p.img?`<img class="hs ${size}" src="${esc(p.img)}" alt="" loading="lazy" onerror="this.remove()">`:"";
 const PID=Object.fromEntries(D.players.map((p,i)=>[p.id,i]));
 function kick(g){const d=new Date(g.day+"T12:00:00");const [h,m]=g.time.split(":").map(Number);
   return d.toLocaleDateString("en-US",{weekday:"short",month:"numeric",day:"numeric"})+" · "+((h%12)||12)+":"+String(m).padStart(2,"0")+(h<12?" AM":" PM")+" ET";}
@@ -369,7 +379,7 @@ function renderMatch(){
   const edgeTxt=r=>r.e!=null?`<span class="edge ${r.e>0?"hot":"cold"}" title="Consensus of ${r.price.n} sportsbook${r.price.n>1?"s":""}: ${(r.win*100).toFixed(1)}%${r.price.adjusted?", adjusted to this line":""}. Your slip needs ${(state.be*100).toFixed(1)}%.">${(r.win*100).toFixed(0)}%</span>${r.price.adjusted?'<span class="sub"> adj</span>':""}`:'<span class="sub">–</span>';
   const playTxt=r=>r.side?`<span class="pick ${r.side==="More"?"more":"less"}">${r.side}</span>`:'<span class="sub">Books not posted</span>';
   const stTxt=r=>r.p.status?`<span class="st ${r.p.status}">${r.p.status}</span>`:"";
-  const head=r=>`<div class="pname plink">${esc(r.p.name)}</div><div class="sub">${r.p.pos} · ${r.p.team} ${GAME[r.p.game]?.home===r.p.team?"vs":"@"} ${r.p.opp}</div>`;
+  const head=r=>`<div class="who">${hs(r.p)}<div><div class="pname plink">${esc(r.p.name)}</div><div class="sub">${r.p.pos} · ${r.p.team} ${GAME[r.p.game]?.home===r.p.team?"vs":"@"} ${r.p.opp}</div></div></div>`;
   $("#matchbody").innerHTML=list.map(r=>{const t=trend(r.p,r.pr.stat);
     const star=`<td><button class="star" data-w="${esc(r.p.id)}" aria-pressed="${isWatched(r.p.id)}" aria-label="Watch ${esc(r.p.name)}">★</button></td>`;
     const match=`<td><span class="chip g-${r.g}" title="${esc(matchTitle(r))}">${r.g} matchup</span></td>`;
@@ -446,7 +456,7 @@ function drawSheet(){
   const qbChange=qbNow&&qbLast&&norm(qbNow)!==norm(qbLast);
   const impPts=p.team===G.home?G.impHome:G.impAway;
   $("#sheet").innerHTML=`
-   <div class="sheethead"><div><h2>${esc(p.name)}</h2><div class="sub">${p.pos} · ${NAMES[p.team]} vs ${NAMES[p.opp]} · ${kick(G)}</div></div>
+   <div class="sheethead"><div class="who">${hs(p,"lg")}<div><h2>${esc(p.name)}</h2><div class="sub">${p.pos} · ${NAMES[p.team]} vs ${NAMES[p.opp]} · ${kick(G)}</div></div></div>
    <div style="display:flex;gap:6px;align-items:start"><button class="star" data-w="${esc(p.id)}" aria-pressed="${isWatched(p.id)}" aria-label="Watch">★</button><button class="close" id="closebtn">Close</button></div></div>
    ${p.status?`<p><span class="st ${p.status}">${p.status}</span> on the latest injury report.</p>`:""}
    <div style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0">${statBtns}</div>
@@ -538,15 +548,18 @@ function renderSlip(){setTimeout(renderParlay,0);
     <div class="sub">${l.p.pos} · ${l.p.team} vs ${l.p.opp} · ${esc(l.stat)} · proj ${l.pr.proj}</div></div>
     <div class="legr"><span class="pick ${l.side==="More"?"more":"less"}">${l.side} ${l.line}</span><span class="edge ${l.est>=state.be?"hot":"cold"}" title="${l.src==="market"?"Sportsbook price":"Model estimate"}">${Math.round(l.est*100)}%${l.src==="model"?"*":""}</span><button class="x" data-rm="${i}" aria-label="Remove">✕</button></div></div>`).join("")
     +correlations(legs).map(c=>`<div class="corr ${c.k}">${c.k==="plus"?"▲ ":"▼ "}${esc(c.t)}</div>`).join("")
-    +`<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" id="copyslip">Copy slip</button><button class="btn" id="clearslip">Clear slip</button></div>`;
+    +`<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" id="saveslip">Save to My bets</button><button class="btn" id="shareslip">Share</button><button class="btn" id="copyslip">Copy</button><button class="btn" id="clearslip">Clear</button></div>`;
   const all=legs.reduce((s,l)=>s*l.est,1);const mult=state.mult[n];
   $("#slipsum").innerHTML=`<h3>Slip value</h3>${n<2||n>6?`<p class="sub">PrizePicks slips take 2 to 6 picks.</p>`:`
-    <label for="mult" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;flex-direction:column;gap:4px">${n}-pick Power payout (x)<input type="number" id="mult" step="0.5" min="1" value="${mult}"></label>
+    <label for="mult" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;flex-direction:column;gap:4px">${n}-pick Power payout (x)<input type="number" id="mult" step="0.5" min="1" value="${mult}"></label><label for="ppstake" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;flex-direction:column;gap:4px;margin-top:8px">Entry ($)<input type="number" id="ppstake" min="1" step="1" value="${state.ppStake||10}"></label>
     <div class="sum"><div><span>All hit</span><b>${(all*100).toFixed(1)}%</b></div><div><span>Expected return</span><b style="color:${all*mult>=1?"var(--pos)":"var(--neg)"}">${all*mult>=1?"+":""}${((all*mult-1)*100).toFixed(0)}%</b></div></div>
     <p class="sub">Break-even needs each pick to hit about ${(Math.pow(1/mult,1/n)*100).toFixed(1)}% of the time. The weakest pick is ${esc(legs.reduce((a,b)=>a.est<b.est?a:b).p.name)} at ${Math.round(Math.min(...legs.map(l=>l.est))*100)}%.</p>`}`;
   wireBest();
   const m=$("#mult");if(m)m.onchange=e=>{const v=parseFloat(e.target.value);if(v>0){state.mult[n]=v;save();renderSlip();}};
   $("#clearslip").onclick=()=>{state.legs=[];save();renderSlip();};
+  const ps=$("#ppstake");if(ps)ps.onchange=e=>{const v=parseFloat(e.target.value);if(v>0){state.ppStake=v;save();}};
+  $("#saveslip").onclick=()=>{if(n<2||n>6){toast("Slips need 2 to 6 picks");return;}addBet({sport:"nfl",kind:"slip",stake:state.ppStake||10,mult:state.mult[n],legs:legs.map(l=>({name:l.p.name,stat:l.stat,line:l.line,side:l.side,game:l.p.game,week:D.week}))});};
+  $("#shareslip").onclick=()=>shareLink({s:"nfl",w:D.week,l:state.legs},legs.map(l=>`${l.p.name} ${l.side} ${l.line} ${l.stat}`).join("\n"));
   $("#copyslip").onclick=()=>{const t=legs.map(l=>`${l.p.name} ${l.side} ${l.line} ${l.stat}`).join("\n");
     (navigator.clipboard?.writeText(t)||Promise.reject()).then(()=>toast("Slip copied"),()=>{toast("Copy not allowed here");});};
 }
@@ -637,20 +650,22 @@ const PKG={};
 function renderParlay(){const par=state.par;
   if(!par.length){$("#parlegs").innerHTML='<h3>Sportsbook parlay</h3><p class="sub">No legs yet. Open a game on the Games tab and tap a spread, total or moneyline.</p>';$("#parsum").innerHTML='<h3>Parlay value</h3><p class="sub">Add legs to see the payout.</p>';return;}
   $("#parlegs").innerHTML='<h3>Sportsbook parlay</h3>'+par.map((l,i)=>{const g=GAME[l.game];return `<div class="leg"><div style="min-width:0"><b>${esc(l.label)}</b><div class="sub">${g?`${g.away} @ ${g.home} · ${kick(g)}`:""}</div></div><div class="legr"><b class="edge">${fmtOdds(l.odds)}</b><span class="edge cold">${Math.round(l.fair*100)}%</span><button class="x" data-rmp="${i}" aria-label="Remove">✕</button></div></div>`;}).join("")
-    +parCorr(par).map(c=>`<div class="corr ${c.k}">${c.k==="plus"?"▲ ":"▼ "}${esc(c.t)}</div>`).join("")+`<div style="display:flex;gap:8px;margin-top:12px"><button class="btn" id="clearpar">Clear</button><button class="btn" id="copypar">Copy</button></div>`;
+    +parCorr(par).map(c=>`<div class="corr ${c.k}">${c.k==="plus"?"▲ ":"▼ "}${esc(c.t)}</div>`).join("")+`<div style="display:flex;gap:8px;margin-top:12px"><button class="btn" id="savepar">Save to My bets</button><button class="btn" id="sharepar">Share</button><button class="btn" id="copypar">Copy</button><button class="btn" id="clearpar">Clear</button></div>`;
   const d=par.reduce((s,l)=>s*dec(l.odds),1),fair=par.reduce((s,l)=>s*l.fair,1);const am=d>=2?Math.round((d-1)*100):Math.round(-100/(d-1));
   $("#parsum").innerHTML=`<h3>Parlay value</h3><label for="stake" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;flex-direction:column;gap:4px">Stake ($)<input type="number" id="stake" min="1" step="1" value="${state.stake}"></label>
     <div class="sum"><div><span>Parlay odds</span><b>${am>0?"+":""}${am}</b></div><div><span>Pays</span><b>$${(state.stake*d).toFixed(2)}</b></div><div><span>Fair chance</span><b>${(fair*100).toFixed(1)}%</b></div><div><span>Expected return</span><b style="color:${fair*d>=1?"var(--pos)":"var(--neg)"}">${fair*d>=1?"+":""}${((fair*d-1)*100).toFixed(0)}%</b></div></div>
     <p class="sub">Consensus odds at the last refresh; your book's prices will differ a little. Fair chance removes the fee from each leg and treats legs as independent. Every leg carries the book's fee, so parlays usually return less than they cost on average.</p>`;
   $("#stake").onchange=e=>{const v=parseFloat(e.target.value);if(v>0){state.stake=v;save();renderParlay();}};
   $("#clearpar").onclick=()=>{state.par=[];save();renderSlip();renderGames();};
+  $("#savepar").onclick=()=>addBet({sport:"nfl",kind:"parlay",stake:state.stake,legs:par.map(l=>({label:l.label,odds:l.odds,game:l.game,type:l.type,side:l.side,line:l.line}))});
+  $("#sharepar").onclick=()=>shareLink({s:"nfl",w:D.week,p:par.map(l=>l.key)},par.map(l=>`${l.label} (${fmtOdds(l.odds)})`).join("\n"));
   $("#copypar").onclick=()=>{const t=par.map(l=>`${l.label} (${fmtOdds(l.odds)})`).join("\n")+`\nParlay ${am>0?"+":""}${am}`;(navigator.clipboard?.writeText(t)||Promise.reject()).then(()=>toast("Parlay copied"),()=>toast("Copy not allowed here"));};}
 function renderGames(){
   $("#gamelist").innerHTML=D.games.map(g=>{
     const all=[...(D.injuries[g.away]||[]),...(D.injuries[g.home]||[])];const outs=all.filter(x=>x.status==="Out").length;
     const qbc=["Away","Home"].some(k=>g["qb"+k]&&g["qb"+k+"Last"]&&norm(g["qb"+k])!==norm(g["qb"+k+"Last"]));
     return `<button class="game" aria-pressed="${state.game===g.id}" data-g="${g.id}">
-      <div class="matchup">${g.away} @ ${g.home}</div>
+      <div class="matchup">${logo(g.away)} ${g.away} @ ${logo(g.home)} ${g.home}</div>
       <div class="meta"><span>${kick(g)}</span>${g.spread!=null?`<span>${spreadTxt(g)}</span>`:""}${g.total?`<span>O/U ${g.total}</span>`:""}</div>
       <div class="envrow">${all.length?`<span class="chip inj">${all.length} on report${outs?` · ${outs} out`:""}</span>`:'<span class="chip g-C">No one on report</span>'}${qbc?'<span class="flag warn">QB change</span>':""}${g.restAway<=5||g.restHome<=5?'<span class="flag">Short week</span>':""}</div></button>`;}).join("");
   const g=GAME[state.game];if(!g){$("#gamedetail").innerHTML="";return;}
@@ -659,7 +674,7 @@ function renderGames(){
     if(!best)return"";const gr=grade(best.d.rank);
     return `<div class="injrow"><div><button class="linkbtn" data-pi="${pi}" data-ki="${best.k}">${esc(p.name)}</button><div class="sub">${p.pos} · ${p.team} · best: ${esc(p.props[best.k].stat)}</div></div><span class="chip g-${gr}">${gr}</span></div>`;};
   const env=k=>{const t=g[k.toLowerCase()],qb=g["qb"+k],last=g["qb"+k+"Last"];return `<div class="injrow"><div><div class="pname">${NAMES[t]}</div><div class="sub">QB: ${esc(qb||"–")}${qb&&last&&norm(qb)!==norm(last)?` (replacing ${esc(last)})`:""} · ${g["rest"+k]} days rest</div></div><span class="flag">${g["imp"+k]??"–"} pts</span></div>`;};
-  $("#gamedetail").innerHTML=`<h2>${NAMES[g.away]} at ${NAMES[g.home]}</h2>
+  $("#gamedetail").innerHTML=`<h2>${logo(g.away,34)} ${NAMES[g.away]} at ${logo(g.home,34)} ${NAMES[g.home]}</h2>
     <div class="sub">${kick(g)}${g.spread!=null?" · "+spreadTxt(g):""}${g.total?" · O/U "+g.total:""}</div>
     ${nflTeamBreakdown(g)}
     <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:8px;margin-top:14px"><h3 style="font-family:var(--display);text-transform:uppercase;font-size:22px;margin:0">Players in this game</h3>
@@ -905,4 +920,24 @@ document.addEventListener("click",e=>{
 });
 for(const id of ["#matchbody","#matchcards"])$(id).addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){const r=e.target.closest("tr.click,.pcard");if(r&&e.target===r){e.preventDefault();state.tipDone=true;save();$("#tip").hidden=true;openPlayer(+r.dataset.pi,+r.dataset.ki);}}});
 renderMatch();renderSlip();renderFantasy();renderPickem();renderHeat();renderGames();setTab(state.tab);
+
+// ---------- saved bets + share links (shared with the Today page) ----------
+const norm2=s=>String(s||"").toLowerCase().replace(/ jr| sr| iii| ii/g,"").replace(/[^a-z]/g,"");
+function addBet(b){let L=[];try{L=JSON.parse(localStorage.getItem("overlay-bets")||"[]");}catch(e){}
+  b.id=Date.now();b.created=new Date().toISOString();L.push(b);try{localStorage.setItem("overlay-bets",JSON.stringify(L));toast("Saved. Check My bets on the Today page");}catch(e){toast("Couldn't save on this browser");}}
+function shareLink(obj,text){const url=location.href.split(/[?#]/)[0]+"?slip="+encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj)))));
+  if(navigator.share)navigator.share({title:"Overlay slip",text,url}).catch(()=>{});
+  else (navigator.clipboard?.writeText(url)||Promise.reject()).then(()=>toast("Link copied. Send it to a friend"),()=>prompt("Copy this link",url));}
+function readShared(){const q=new URLSearchParams(location.search);const s=q.get("slip");if(!s)return null;try{return JSON.parse(decodeURIComponent(escape(atob(s))));}catch(e){return null;}}
+function sharedBanner(n,load){const m=document.querySelector("main");m.insertAdjacentHTML("afterbegin",`<div class="panel" id="sharebar" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border-color:var(--accent);margin-bottom:16px"><div><b>A friend shared a slip with you</b> <span class="sub">· ${n} pick${n>1?"s":""}. Loading it replaces your current slip.</span></div><div style="display:flex;gap:8px"><button class="btn" id="loadshared">Load it</button><button class="btn" id="noshared">No thanks</button></div></div>`);
+  const done=()=>{$("#sharebar").remove();history.replaceState(null,"",location.pathname);};
+  $("#loadshared").onclick=()=>{load();done();setTab("slip");toast("Slip loaded");};$("#noshared").onclick=done;}
+
+(function(){const q=new URLSearchParams(location.search);
+  const sh=readShared();if(sh&&sh.s==="nfl"){const legs=(sh.l||[]).filter(l=>PID[l.id]!==undefined);const par=(sh.p||[]).map(k=>{const g=GAME[k.split("|")[0]];return g&&nflBets(g).find(b=>b.key===k);}).filter(Boolean);
+    if(legs.length||par.length)sharedBanner(legs.length+par.length,()=>{if(legs.length)state.legs=legs;if(par.length)state.par=par;save();renderSlip();renderGames();});return;}
+  if(q.get("tab"))setTab(q.get("tab"));
+  const op=q.get("open");if(op){const [n,st]=op.split("|");const pi=D.players.findIndex(p=>norm2(p.name)===n&&p.props.some(x=>x.stat===st));
+    if(pi>=0){setTab("match");openPlayer(pi,D.players[pi].props.findIndex(x=>x.stat===st));}}
+  if(q.toString())history.replaceState(null,"",location.pathname);})();
 </script>

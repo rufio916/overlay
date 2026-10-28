@@ -39,15 +39,19 @@ jobs:
           echo "fetch odds: $FETCH"
           if [ "$FETCH" = "1" ]; then export ODDS_API_KEY="$KEY"; fi
           python build_data.py --out data.json
-      - run: python assemble.py index.html
+      - run: python assemble.py nfl
       - name: "NBA (free: sportsdataverse box scores + ESPN lines and injuries)"
         run: |
           cp nba.json nba_prev.json 2>/dev/null || true
-          if python nba_build.py --out nba.json; then python assemble_nba.py nba.html; else echo "NBA build failed; keeping the last NBA page"; cp nba_prev.json nba.json 2>/dev/null || true; fi
+          if python nba_build.py --out nba.json; then python assemble.py nba; else echo "NBA build failed; keeping the last NBA page"; cp nba_prev.json nba.json 2>/dev/null || true; fi
           rm -f nba_prev.json
+      - name: "Today page + track record (free: grades logged picks from box scores)"
+        run: |
+          if python tracker.py --nfl data.json --nba nba.json --history history.json --out today.json; then python assemble.py today; else echo "Tracker failed; keeping the last Today page"; fi
       - run: |
           git config user.name "overlay-bot"
           git config user.email "overlay-bot@users.noreply.github.com"
-          git add data.json index.html nba.json nba.html
+          git add data.json nfl.html nba.json nba.html history.json today.json index.html
           git diff --cached --quiet || git commit -m "Refresh data"
+          git pull --rebase -q || true
           git push

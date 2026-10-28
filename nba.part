@@ -2,7 +2,7 @@
 <header class="top">
   <div class="topin">
     <div class="brand">Over<span>lay</span></div>
-    <nav class="sport" aria-label="Sport"><a href="./">NFL</a><a href="nba.html" aria-current="page">NBA</a></nav>
+    <nav class="sport" aria-label="Sport"><a href="./">Today</a><a href="nfl.html">NFL</a><a href="nba.html" aria-current="page">NBA</a></nav>
     <div class="week" id="weeklabel"></div>
     <div class="sample" id="freshness"></div>
   </div>
@@ -71,6 +71,8 @@ const $=s=>document.querySelector(s);
 const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const TN=ab=>(D.teams[ab]&&D.teams[ab].name)||ab;
 const GAME=Object.fromEntries(D.games.map(g=>[g.id,g]));
+const logo=(t,s=22)=>t?`<img class="logo" src="https://a.espncdn.com/i/teamlogos/nba/500/${t.toLowerCase()}.png" alt="" width="${s}" height="${s}" loading="lazy" onerror="this.remove()">`:"";
+const hs=(p,size="")=>p&&p.img?`<img class="hs ${size}" src="${esc(p.img)}" alt="" loading="lazy" onerror="this.remove()">`:"";
 const PID=Object.fromEntries(D.players.map((p,i)=>[p.id,i]));
 function toast(t){const el=$("#toast");el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,1800);}
 const imp=o=>o<0?(-o)/(-o+100):100/(o+100);
@@ -120,7 +122,7 @@ function renderProps(){
   list.sort((a,b)=>(b.pr.proj-b.base)/sdFor(b.pr)-(a.pr.proj-a.base)/sdFor(a.pr));
   const nf=["pos","mkt","gm","grd"].filter(k=>state[k]).length+(state.q?1:0);$("#ftoggle").textContent=nf?`Filters (${nf})`:"Filters";
   if(!list.length){$("#pbody").innerHTML='<tr><td colspan="8" class="empty">No players match these filters.</td></tr>';$("#pcards").innerHTML='<div class="panel empty">No players match these filters.</div>';return;}
-  const head=r=>`<div class="pname plink">${esc(r.p.name)}</div><div class="sub">${r.p.pos} · ${r.p.team} ${r.p.home?"vs":"@"} ${r.p.opp}</div>`;
+  const head=r=>`<div class="who">${hs(r.p)}<div><div class="pname plink">${esc(r.p.name)}</div><div class="sub">${r.p.pos} · ${r.p.team} ${r.p.home?"vs":"@"} ${r.p.opp}</div></div></div>`;
   const avg=r=>r.pr.avg!=null?`${r.pr.avg}`:`<span class="sub" title="Last season">${r.pr.prior} ls</span>`;
   const st=r=>r.p.status?`<span class="st ${r.p.status==="Out"?"Out":"Questionable"}">${esc(r.p.status)}</span>`:"";
   $("#pbody").innerHTML=list.slice(0,300).map(r=>{const t=minTrend(r.p);const dp=r.pr.proj-(r.base||r.pr.proj);
@@ -172,7 +174,7 @@ function drawSheet(){const {pi,ki}=cur;const p=D.players[pi],pr=p.props[ki];cons
   if(outsOpp.length)notes.push(`${TN(p.opp)} is missing ${outsOpp.map(x=>`${esc(x.name)} (${x.min} min)`).join(", ")}.`);
   if(pr.avg!=null&&pr.prior!=null&&Math.abs(pr.avg-pr.prior)/(pr.prior||1)>.2)notes.push(`He's averaging ${pr.avg} this season vs ${pr.prior} last season; early-season numbers swing a lot, so the projection blends both.`);
   const statBtns=p.props.map((x,k)=>`<button class="btn" ${k===ki?'aria-current="true" style="border-color:var(--accent);color:var(--accent)"':""} data-pi="${pi}" data-ki="${k}" data-switch="1">${esc(x.stat)}</button>`).join(" ");
-  $("#sheet").innerHTML=`<div class="sheethead"><div><h2>${esc(p.name)}</h2><div class="sub">${p.pos} · ${esc(TN(p.team))} ${p.home?"vs":"@"} ${esc(TN(p.opp))} · ${kick(G)}</div></div><button class="close" id="closebtn">Close</button></div>
+  $("#sheet").innerHTML=`<div class="sheethead"><div class="who">${hs(p,"lg")}<div><h2>${esc(p.name)}</h2><div class="sub">${p.pos} · ${esc(TN(p.team))} ${p.home?"vs":"@"} ${esc(TN(p.opp))} · ${kick(G)}</div></div></div><button class="close" id="closebtn">Close</button></div>
    ${p.status?`<p><span class="st ${p.status==="Out"?"Out":"Questionable"}">${esc(p.status)}</span> ${esc(((D.injuries[p.team]||[]).find(x=>norm(x.name)===norm(p.name))||{}).note||"")}</p>`:""}
    <div style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0">${statBtns}</div>
    <div class="checker"><div class="row"><label for="lineinput" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase">PrizePicks line</label>
@@ -209,7 +211,7 @@ function renderGames(){
   $("#gamelist").innerHTML=days.map(day=>`<div class="daygroup">${day===today?"Today":new Date(day+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"})}</div><div class="gm-cards">`+D.games.filter(g=>g.day===day).map(g=>{
     const pH=winChance(g),o=g.odds;const outs=keyOuts(g.home).length+keyOuts(g.away).length;const fin=g.state==="post",live=g.state==="in";
     return `<button class="game" aria-pressed="${state.game===g.id}" data-g="${g.id}">
-      <div class="matchup">${g.away} @ ${g.home}</div>
+      <div class="matchup">${logo(g.away)} ${g.away} @ ${logo(g.home)} ${g.home}</div>
       <div class="meta"><span>${fin||live?esc(g.detail):kick(g)}</span>${o&&o.spreadH!=null?`<span>${spreadTxt(g)}</span>`:""}${o&&o.total!=null?`<span>O/U ${o.total}</span>`:""}</div>
       ${fin||live?`<div class="meta"><span>${g.away} ${g.scoreA} · ${g.home} ${g.scoreH}</span></div>`:pH!=null?`<div class="meta"><span>${g.home} ${pct(pH)} to win</span><span>${g.away} ${pct(1-pH)}</span></div>`:'<div class="meta"><span>Lines not posted yet</span></div>'}
       <div class="envrow">${outs?`<span class="chip inj">${outs} key player${outs>1?"s":""} out</span>`:""}${g.restH===0||g.restA===0?`<span class="flag warn">Back-to-back: ${[g.restA===0?g.away:"",g.restH===0?g.home:""].filter(Boolean).join(", ")}</span>`:""}</div></button>`;}).join("")+`</div>`).join("");
@@ -238,7 +240,7 @@ function gameDetail(g){const H=D.teams[g.home]||{},A=D.teams[g.away]||{};const o
   const bets=betList(g);const open=g.state==="pre";
   const players=D.players.map((p,pi)=>({p,pi})).filter(x=>x.p.game===g.id);
   const plist=t=>players.filter(x=>x.p.team===t).map(({p,pi})=>`<div class="gprow"><div style="display:flex;justify-content:space-between;gap:8px"><button class="linkbtn" data-pi="${pi}" data-ki="0">${esc(p.name)}</button>${p.status?`<span class="st Questionable">${esc(p.status)}</span>`:""}</div><div class="sub">${p.pos} · ${minTrend(p).txt}</div><div class="propchips">${p.props.map((pr,k)=>`<button class="propchip" data-pi="${pi}" data-ki="${k}">${esc(pr.stat)} <span class="sub">proj ${pr.proj}</span></button>`).join("")}</div></div>`).join("")||'<p class="sub">No rotation players found.</p>';
-  return `<h2>${esc(TN(g.away))} at ${esc(TN(g.home))}</h2><div class="sub">${kick(g)}${o?` · ${spreadTxt(g)} · O/U ${o.total??"–"} · lines from ${esc(o.book)}`:" · lines not posted yet"}</div>
+  return `<h2>${logo(g.away,34)} ${esc(TN(g.away))} at ${logo(g.home,34)} ${esc(TN(g.home))}</h2><div class="sub">${kick(g)}${o?` · ${spreadTxt(g)} · O/U ${o.total??"–"} · lines from ${esc(o.book)}`:" · lines not posted yet"}</div>
     <div class="gdetail" style="margin-top:12px">
       <div class="panel"><h3>Bets${pH!=null?` · ${g.home} ${pct(pH)} to win`:""}</h3>${bets.length?`<div class="betbtns">${bets.map(b=>`<button class="betbtn" data-bet="${b.key}" aria-pressed="${inPar(b.key)}" ${open?"":"disabled"}><span>${esc(b.label)}</span><b>${fmtOdds(b.odds)}</b></button>`).join("")}</div>
         <p class="sub" style="margin-top:8px">${open?"Tap to add to a sportsbook parlay on the Slip tab. Chances use DraftKings' odds with the fee removed.":"This game has started."}</p>`:'<p class="sub">DraftKings usually posts lines the morning of the game. They show up after the next refresh.</p>'}</div>
@@ -275,21 +277,26 @@ function renderSlip(){
   if(!n){$("#sliplegs").innerHTML='<h3>PrizePicks picks</h3><p class="sub">No picks yet. Open any player on the Props tab, type the line from the app, choose More or Less, and tap Add to slip.</p>';$("#slipsum").innerHTML='<h3>PrizePicks value</h3><p class="sub">Add at least two picks.</p>';}
   else{$("#sliplegs").innerHTML='<h3>PrizePicks picks</h3>'+legs.map((l,i)=>`<div class="leg"><div style="min-width:0"><button class="linkbtn" data-pi="${PID[l.id]}" data-ki="${l.p.props.indexOf(l.pr)}">${esc(l.p.name)}</button><div class="sub">${l.p.pos} · ${l.p.team} ${l.p.home?"vs":"@"} ${l.p.opp} · ${esc(l.stat)} · proj ${l.pr.proj}</div></div>
       <div class="legr"><span class="pick ${l.side==="More"?"more":"less"}">${l.side} ${l.line}</span><span class="edge ${l.est>=state.be?"hot":"cold"}">${Math.round(l.est*100)}%</span><button class="x" data-rm="${i}" aria-label="Remove">✕</button></div></div>`).join("")
-      +correlations(legs).map(c=>`<div class="corr ${c.k}">${c.k==="plus"?"▲ ":"▼ "}${esc(c.t)}</div>`).join("")+`<div style="display:flex;gap:8px;margin-top:12px"><button class="btn" id="clearslip">Clear</button></div>`;
+      +correlations(legs).map(c=>`<div class="corr ${c.k}">${c.k==="plus"?"▲ ":"▼ "}${esc(c.t)}</div>`).join("")+`<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" id="saveslip">Save to My bets</button><button class="btn" id="shareslip">Share</button><button class="btn" id="clearslip">Clear</button></div>`;
     const all=legs.reduce((s,l)=>s*l.est,1),mult=state.mult[n];
-    $("#slipsum").innerHTML=`<h3>PrizePicks value</h3>${n<2||n>6?'<p class="sub">PrizePicks slips take 2 to 6 picks.</p>':`<label for="mult" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;flex-direction:column;gap:4px">${n}-pick Power payout (x)<input type="number" id="mult" step="0.5" min="1" value="${mult}"></label>
+    $("#slipsum").innerHTML=`<h3>PrizePicks value</h3>${n<2||n>6?'<p class="sub">PrizePicks slips take 2 to 6 picks.</p>':`<label for="mult" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;flex-direction:column;gap:4px">${n}-pick Power payout (x)<input type="number" id="mult" step="0.5" min="1" value="${mult}"></label><label for="ppstake" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;flex-direction:column;gap:4px;margin-top:8px">Entry ($)<input type="number" id="ppstake" min="1" step="1" value="${state.ppStake||10}"></label>
       <div class="sum"><div><span>All hit</span><b>${(all*100).toFixed(1)}%</b></div><div><span>Expected return</span><b style="color:${all*mult>=1?"var(--pos)":"var(--neg)"}">${all*mult>=1?"+":""}${((all*mult-1)*100).toFixed(0)}%</b></div></div><p class="sub">Rough estimates; picks treated as independent.</p>`}`;
-    const mi=$("#mult");if(mi)mi.onchange=e=>{const v=parseFloat(e.target.value);if(v>0){state.mult[n]=v;save();renderSlip();}};$("#clearslip").onclick=()=>{state.legs=[];save();renderSlip();};}
+    const mi=$("#mult");if(mi)mi.onchange=e=>{const v=parseFloat(e.target.value);if(v>0){state.mult[n]=v;save();renderSlip();}};$("#clearslip").onclick=()=>{state.legs=[];save();renderSlip();};
+    const ps=$("#ppstake");if(ps)ps.onchange=e=>{const v=parseFloat(e.target.value);if(v>0){state.ppStake=v;save();}};
+    $("#saveslip").onclick=()=>{if(n<2||n>6){toast("Slips need 2 to 6 picks");return;}addBet({sport:"nba",kind:"slip",stake:state.ppStake||10,mult:state.mult[n],legs:legs.map(l=>({name:l.p.name,stat:l.stat,line:l.line,side:l.side,game:l.p.game}))});};
+    $("#shareslip").onclick=()=>shareLink({s:"nba",l:state.legs},legs.map(l=>`${l.p.name} ${l.side} ${l.line} ${l.stat}`).join("\n"));}
   const par=state.par;
   if(!par.length){$("#parlegs").innerHTML='<h3>Sportsbook parlay</h3><p class="sub">No legs yet. Open a game on the Games tab and tap a spread, total or moneyline.</p>';$("#parsum").innerHTML='<h3>Parlay value</h3><p class="sub">Add legs to see the payout.</p>';return;}
   $("#parlegs").innerHTML='<h3>Sportsbook parlay</h3>'+par.map((l,i)=>{const g=GAME[l.game];return `<div class="leg"><div style="min-width:0"><button class="linkbtn" data-g="${l.game}" data-open="1">${esc(l.label)}</button><div class="sub">${g.away} @ ${g.home} · ${kick(g)}</div></div><div class="legr"><b class="edge">${fmtOdds(l.odds)}</b><span class="edge cold">${pct(l.fair)}</span><button class="x" data-rmp="${i}" aria-label="Remove">✕</button></div></div>`;}).join("")
-    +parCorr(par).map(c=>`<div class="corr ${c.k}">${c.k==="plus"?"▲ ":"▼ "}${esc(c.t)}</div>`).join("")+`<div style="display:flex;gap:8px;margin-top:12px"><button class="btn" id="clearpar">Clear</button><button class="btn" id="copypar">Copy</button></div>`;
+    +parCorr(par).map(c=>`<div class="corr ${c.k}">${c.k==="plus"?"▲ ":"▼ "}${esc(c.t)}</div>`).join("")+`<div style="display:flex;gap:8px;margin-top:12px"><button class="btn" id="savepar">Save to My bets</button><button class="btn" id="sharepar">Share</button><button class="btn" id="copypar">Copy</button><button class="btn" id="clearpar">Clear</button></div>`;
   const d=par.reduce((s,l)=>s*dec(l.odds),1),fair=par.reduce((s,l)=>s*l.fair,1);const am=d>=2?Math.round((d-1)*100):Math.round(-100/(d-1));
   $("#parsum").innerHTML=`<h3>Parlay value</h3><label for="stake" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;flex-direction:column;gap:4px">Stake ($)<input type="number" id="stake" min="1" step="1" value="${state.stake}"></label>
     <div class="sum"><div><span>Parlay odds</span><b>${am>0?"+":""}${am}</b></div><div><span>Pays</span><b>$${(state.stake*d).toFixed(2)}</b></div><div><span>Fair chance</span><b>${(fair*100).toFixed(1)}%</b></div><div><span>Expected return</span><b style="color:${fair*d>=1?"var(--pos)":"var(--neg)"}">${fair*d>=1?"+":""}${((fair*d-1)*100).toFixed(0)}%</b></div></div>
     <p class="sub">Odds from DraftKings at the last refresh; check your book before betting. Fair chance removes the book's fee from each leg and treats legs as independent.</p>`;
   $("#stake").onchange=e=>{const v=parseFloat(e.target.value);if(v>0){state.stake=v;save();renderSlip();}};
   $("#clearpar").onclick=()=>{state.par=[];save();renderSlip();renderGames();};
+  $("#savepar").onclick=()=>addBet({sport:"nba",kind:"parlay",stake:state.stake,legs:par.map(l=>({label:l.label,odds:l.odds,game:l.game,type:l.type,side:l.side,line:l.line}))});
+  $("#sharepar").onclick=()=>shareLink({s:"nba",p:par.map(l=>l.key)},par.map(l=>`${l.label} (${fmtOdds(l.odds)})`).join("\n"));
   $("#copypar").onclick=()=>{const t=par.map(l=>`${l.label} (${fmtOdds(l.odds)})`).join("\n")+`\nParlay ${am>0?"+":""}${am}`;(navigator.clipboard?.writeText(t)||Promise.reject()).then(()=>toast("Parlay copied"),()=>toast("Copy not allowed here"));};
 }
 
@@ -329,4 +336,25 @@ document.addEventListener("click",e=>{
 });
 for(const id of ["#pbody","#pcards"])$(id).addEventListener("keydown",e=>{if(e.key==="Enter"){const r=e.target.closest("tr.click,.pcard");if(r)openPlayer(+r.dataset.pi,+r.dataset.ki);}});
 renderProps();renderGames();renderSlip();renderHeat();setTab(state.tab);
+
+// ---------- saved bets + share links (shared with the Today page) ----------
+const norm2=s=>String(s||"").toLowerCase().replace(/ jr| sr| iii| ii/g,"").replace(/[^a-z]/g,"");
+function addBet(b){let L=[];try{L=JSON.parse(localStorage.getItem("overlay-bets")||"[]");}catch(e){}
+  b.id=Date.now();b.created=new Date().toISOString();L.push(b);try{localStorage.setItem("overlay-bets",JSON.stringify(L));toast("Saved. Check My bets on the Today page");}catch(e){toast("Couldn't save on this browser");}}
+function shareLink(obj,text){const url=location.href.split(/[?#]/)[0]+"?slip="+encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj)))));
+  if(navigator.share)navigator.share({title:"Overlay slip",text,url}).catch(()=>{});
+  else (navigator.clipboard?.writeText(url)||Promise.reject()).then(()=>toast("Link copied. Send it to a friend"),()=>prompt("Copy this link",url));}
+function readShared(){const q=new URLSearchParams(location.search);const s=q.get("slip");if(!s)return null;try{return JSON.parse(decodeURIComponent(escape(atob(s))));}catch(e){return null;}}
+function sharedBanner(n,load){const m=document.querySelector("main");m.insertAdjacentHTML("afterbegin",`<div class="panel" id="sharebar" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border-color:var(--accent);margin-bottom:16px"><div><b>A friend shared a slip with you</b> <span class="sub">· ${n} pick${n>1?"s":""}. Loading it replaces your current slip.</span></div><div style="display:flex;gap:8px"><button class="btn" id="loadshared">Load it</button><button class="btn" id="noshared">No thanks</button></div></div>`);
+  const done=()=>{$("#sharebar").remove();history.replaceState(null,"",location.pathname);};
+  $("#loadshared").onclick=()=>{load();done();setTab("slip");toast("Slip loaded");};$("#noshared").onclick=done;}
+
+(function(){const q=new URLSearchParams(location.search);
+  const sh=readShared();if(sh&&sh.s==="nba"){const legs=(sh.l||[]).filter(l=>PID[l.id]!==undefined);const par=(sh.p||[]).map(k=>{const g=GAME[k.split("|")[0]];return g&&g.state==="pre"&&betList(g).find(b=>b.key===k);}).filter(Boolean);
+    if(legs.length||par.length)sharedBanner(legs.length+par.length,()=>{if(legs.length)state.legs=legs;if(par.length)state.par=par;save();renderSlip();renderGames();});return;}
+  if(q.get("tab"))setTab(q.get("tab"));
+  const gm=q.get("game");if(gm&&GAME[gm]){state.game=gm;save();setTab("games");renderGames();const gd=$("#gamedetail");if(gd)setTimeout(()=>gd.scrollIntoView({block:"start"}),50);}
+  const op=q.get("open");if(op){const k=op.lastIndexOf("|"),id=op.slice(0,k),st=op.slice(k+1);const pi=PID[id];
+    if(pi!==undefined){const ki=D.players[pi].props.findIndex(x=>x.stat===st);if(ki>=0){setTab("props");openPlayer(pi,ki);}}}
+  if(q.toString())history.replaceState(null,"",location.pathname);})();
 </script>

@@ -219,7 +219,9 @@ def build(local=None, espn_dir=None):
                 if not props: continue
                 usage = [{"wk": r.game_date[5:], "min": r1(r.minutes), "fga": int(r.field_goals_attempted or 0), "starter": bool(r.starter),
                           "o": ("vs " if r.home_away == "home" else "@ ") + r.opponent_team_abbreviation} for r in logs.tail(10).itertuples()]
-                players.append({"id": f"{key(nm)}-{team}", "name": nm, "pos": pos, "team": team, "opp": opp, "home": home, "game": g["id"],
+                src = logs if len(logs) else prior
+                img = src.athlete_headshot_href.dropna().iloc[-1] if "athlete_headshot_href" in src and src.athlete_headshot_href.notna().any() else ""
+                players.append({"id": f"{key(nm)}-{team}", "name": nm, "pos": pos, "team": team, "opp": opp, "home": home, "game": g["id"], "img": img,
                                 "status": status_of.get((key(nm), team), ""), "props": props, "usage": usage,
                                 "minPrior": r1(prior.minutes.mean()) if len(prior) else None})
 
