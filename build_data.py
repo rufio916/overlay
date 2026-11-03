@@ -200,6 +200,10 @@ def build(week=None, local_dir=None):
         games_out.append(e)
 
     odds = odds_block(wk, players)
+    _o = odds.get("odds") or {}
+    _last = _o.get("fetched") or _o.get("fetchedLast") or ""
+    if _o.get("status") != "ok" and _last and _last[:7] != datetime.now(timezone.utc).strftime("%Y-%m"):
+        _o["remaining"] = "500"  # free plan resets to 500 on the 1st; the next pull reports the exact number
     tracked = {key(p["name"]) for p in players}
     games_by_team = {}
     for g in wk.itertuples():
