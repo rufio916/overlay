@@ -163,6 +163,10 @@ input[type=search]{width:190px}
 /* heatmap */
 .heat td.h{font-family:var(--mono);text-align:center;font-weight:600;min-width:72px}
 .heat th.sortable{cursor:pointer}
+.heat.fit{min-width:0}
+.posseg{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.posseg button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:6px 14px;cursor:pointer}
+.posseg button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .heat th.sortable:hover{color:var(--fg)}
 .envrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
 .flag{font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;background:var(--raised);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
@@ -214,7 +218,9 @@ details.inj summary{cursor:pointer;font-size:11px;font-weight:600;letter-spacing
   .topin{padding-top:8px}
   .week{padding-bottom:2px}
   h2{font-size:22px;margin-top:16px}
-  #match .tablebox{display:none}
+  #match .tablebox,#props .tablebox{display:none}
+  .ftoggle{margin-bottom:10px}
+  .heat td.h{min-width:0;padding-inline:6px} .heat th{padding-inline:6px} .heat td .sub{font-size:11px}
   .cards{display:flex}
   .ftoggle{display:inline-flex}
   .controls{display:none}
@@ -346,6 +352,7 @@ ul.why li{line-height:1.45}
   <section id="defense" hidden>
     <h2>Defense heatmap</h2>
     <p class="lede">What each defense allows per game to guards, forwards and centers. Green = good matchup to attack. Tap a column to sort.</p>
+    <div class="posseg" id="heatpos" role="group" aria-label="Position"><button data-p="">All</button><button data-p="G">Guards</button><button data-p="F">Forwards</button><button data-p="C">Centers</button></div>
     <div class="tablebox"><table class="heat"><thead id="heathead"></thead><tbody id="heatbody"></tbody></table></div>
   </section>
 </main>
@@ -421,9 +428,9 @@ function renderProps(){
       <td class="num">${r.pr.proj} <span class="delta ${dp>.3?"up":dp<-.3?"dn":""}">${dp>=0?"+":""}${dp.toFixed(1)}</span></td>
       <td><span class="chip g-${r.g}" title="${esc(TN(r.p.opp))} allows ${r.d.avg} ${r.pr.stat.toLowerCase()} a game to ${POSN[r.p.pos]} (rank ${r.d.rank} of 30)">${r.g} matchup</span></td>
       <td><span class="trend ${t.cls}">${t.txt}</span></td><td>${st(r)}</td><td class="chev" aria-hidden="true">›</td></tr>`;}).join("");
-  $("#pcards").innerHTML=list.slice(0,80).map(r=>{const t=minTrend(r.p);return `<div class="pcard click" role="button" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}">
+  $("#pcards").innerHTML=list.slice(0,80).map(r=>{const t=minTrend(r.p);const dp=r.pr.proj-(r.base||r.pr.proj);return `<div class="pcard click" role="button" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}">
     <div class="top"><div style="min-width:0">${head(r)}</div>${st(r)}</div>
-    <div class="play"><span class="bigline">${r.pr.stat}</span><span class="sub">avg ${r.pr.avg??r.pr.prior} · proj ${r.pr.proj}</span></div>
+    <div class="play"><span class="bigline">${r.pr.stat}</span><span class="sub">avg ${r.pr.avg??r.pr.prior} · our proj ${r.pr.proj}</span><span class="delta ${dp>.3?"up":dp<-.3?"dn":""}">${dp>=0?"+":""}${dp.toFixed(1)}</span></div>
     <div class="foot"><div class="play"><span class="chip g-${r.g}">${r.g} matchup</span><span class="trend ${t.cls}">${t.txt}</span></div><span class="more-link">Details ›</span></div></div>`;}).join("");
 }
 
@@ -593,13 +600,16 @@ function renderSlip(){
 
 // ---------- defense heatmap ----------
 const HEATCOLS=[["G","Points"],["G","Assists"],["G","3-Pointers"],["F","Points"],["F","Rebounds"],["C","Points"],["C","Rebounds"]];
-let heatSort=-1;
-function renderHeat(){$("#heathead").innerHTML=`<tr><th class="sortable" data-c="-1">Defense</th>${HEATCOLS.map((c,i)=>`<th class="sortable num" data-c="${i}">${c[0]==="G"?"Guard":c[0]==="F"?"Fwd":"Center"} ${c[1]==="3-Pointers"?"3PM":c[1]}${heatSort===i?" ▼":""}</th>`).join("")}</tr>`;
+let heatSort=-1;let heatPos=matchMedia("(max-width:700px)").matches?"G":"";
+function renderHeat(){const COLS=HEATCOLS.map((c,i)=>[c,i]).filter(([c])=>!heatPos||c[0]===heatPos);if(heatSort>=0&&!COLS.some(([,i])=>i===heatSort))heatSort=-1;
+  document.querySelectorAll("#heatpos button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.p===heatPos));$("#heathead").closest("table").classList.toggle("fit",!!heatPos);
+  $("#heathead").innerHTML=`<tr><th class="sortable" data-c="-1">Defense</th>${COLS.map(([c,i])=>`<th class="sortable num" data-c="${i}">${heatPos?"":(c[0]==="G"?"Guard ":c[0]==="F"?"Fwd ":"Center ")}${c[1]==="3-Pointers"?"3PM":c[1]}${heatSort===i?" ▼":""}</th>`).join("")}</tr>`;
   let teams=Object.keys(D.dvp).sort();if(heatSort>=0){const k=HEATCOLS[heatSort].join("|");teams.sort((a,b)=>D.dvp[b][k].rank-D.dvp[a][k].rank);}
   const playing=new Set(D.games.flatMap(g=>[g.home,g.away]));
-  $("#heatbody").innerHTML=teams.map(t=>`<tr><td><div class="pname">${t}</div><div class="sub">${esc(TN(t))}${playing.has(t)?"":" · not playing"}</div></td>${HEATCOLS.map(c=>{const d=D.dvp[t][c.join("|")];const x=(d.rank-1)/29;
+  $("#heatbody").innerHTML=teams.map(t=>`<tr><td><div class="pname">${t}</div><div class="sub">${esc(TN(t))}${playing.has(t)?"":" · not playing"}</div></td>${COLS.map(([c])=>{const d=D.dvp[t][c.join("|")];const x=(d.rank-1)/29;
     const bg=x>.5?`color-mix(in srgb, var(--pos) ${Math.round((x-.5)*2*45)}%, transparent)`:`color-mix(in srgb, var(--neg) ${Math.round((.5-x)*2*35)}%, transparent)`;
     return `<td class="h" style="background:${bg}" title="Rank ${d.rank} of 30">${d.avg}<div class="sub" style="font-weight:400">#${d.rank}</div></td>`;}).join("")}</tr>`).join("");}
+$("#heatpos").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;heatPos=b.dataset.p;renderHeat();});
 $("#heathead").addEventListener("click",e=>{const th=e.target.closest("th");if(!th)return;heatSort=+th.dataset.c;renderHeat();});
 
 // ---------- wiring ----------
