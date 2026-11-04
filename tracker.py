@@ -259,7 +259,7 @@ def run(a):
             sd = max(math.sqrt(.5 * pr["sd"] ** 2 + .5 * (k * max(pr["proj"], 1)) ** 2), 1)
             nba_props.append({"name": p["name"], "team": p["team"], "opp": p["opp"], "home": p["home"], "pos": p["pos"], "stat": pr["stat"], "proj": pr["proj"], "base": base,
                               "lift": round((pr["proj"] - base) / sd, 3), "rank": d["rank"] if d else None, "game": p["game"], "img": p.get("img", ""), "id": p["id"]})
-    nba_top = sorted(nba_props, key=lambda x: -x["lift"])[:8]
+    nba_top = sorted(nba_props, key=lambda x: -x["lift"])[:12]
 
     # recent results so saved bets can be graded in the browser
     res = {"nfl": {}, "nflGames": {}, "nba": {}, "nbaGames": {}}
