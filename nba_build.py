@@ -78,6 +78,41 @@ def parse_odds(comp):
             "overOdds": odds_num(ovOdds) or -110, "underOdds": odds_num(unOdds) or -110}
 
 
+PROP_TYPES = {"Total Points": "Points", "Total Rebounds": "Rebounds", "Total Assists": "Assists",
+              "Total 3-Point Field Goals": "3-Pointers", "Total Points, Rebounds, and Assists": "Pts+Reb+Ast"}
+CORE = "https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba"
+
+
+def fetch_props(gid, espn_dir):
+    """DraftKings player prop lines for one game, free through ESPN. Returns {espn_athlete_id: {stat: {...}}}.
+    ESPN lists each line as two entries, over first then under."""
+    items, page = [], 1
+    while page <= 4:
+        d = get_json(f"{CORE}/events/{gid}/competitions/{gid}/odds/100/propBets?lang=en&region=us&limit=1000&page={page}", espn_dir, f"nba_props_{gid}_{page}.json")
+        items += d.get("items", [])
+        if page >= (d.get("pageCount") or 1): break
+        page += 1
+    pairs = {}
+    for it in items:
+        stat = PROP_TYPES.get((it.get("type") or {}).get("name"))
+        if not stat or "athlete" not in it: continue
+        aid = it["athlete"]["$ref"].split("/athletes/")[1].split("?")[0]
+        o = it.get("odds") or {}
+        line = line_num((o.get("total") or {}).get("value")); price = odds_num((o.get("american") or {}).get("value"))
+        if line is None or price is None: continue
+        pairs.setdefault((aid, stat, line), []).append((price, line_num((o.get("total") or {}).get("open"))))
+    out = {}
+    for (aid, stat, line), v in pairs.items():
+        if len(v) != 2: continue
+        (ov, op), (un, _) = v
+        imp = lambda x: (-x) / (-x + 100) if x < 0 else 100 / (x + 100)
+        p_over = imp(ov) / (imp(ov) + imp(un))
+        cur = out.setdefault(aid, {}).get(stat)
+        if cur is None or abs(p_over - .5) < abs(cur["pOver"] - .5):  # main line = the one closest to even money
+            out[aid][stat] = {"line": line, "overOdds": ov, "underOdds": un, "pOver": round(p_over, 4), "lineOpen": op}
+    return out
+
+
 def build(local=None, espn_dir=None):
     pb = load_csv(f"player_box_{SEASON}.csv", local); tb = load_csv(f"team_box_{SEASON}.csv", local)
     pb0 = load_csv(f"player_box_{PRIOR}.csv", local); tb0 = load_csv(f"team_box_{PRIOR}.csv", local)
@@ -167,6 +202,12 @@ def build(local=None, espn_dir=None):
                 g["rest" + side] = (start.astimezone(PT).date() - datetime.strptime(last, "%Y-%m-%d").date()).days - 1 if last else None
             slate.append(g)
     slate.sort(key=lambda g: g["start"])
+    book_props, props_at = {}, None
+    if not local or espn_dir:
+        for g in slate:
+            if g["state"] != "pre": continue
+            try: book_props.update(fetch_props(g["id"], espn_dir)); props_at = datetime.now(timezone.utc).isoformat(timespec="minutes")
+            except Exception as e: print("props skipped for", g["id"], e)
 
     # ---- injuries (ESPN) ----
     inj = get_json(f"{ESPN}/injuries", espn_dir, "nba_injuries.json")
@@ -221,6 +262,10 @@ def build(local=None, espn_dir=None):
                           "o": ("vs " if r.home_away == "home" else "@ ") + r.opponent_team_abbreviation} for r in logs.tail(10).itertuples()]
                 src = logs if len(logs) else prior
                 img = src.athlete_headshot_href.dropna().iloc[-1] if "athlete_headshot_href" in src and src.athlete_headshot_href.notna().any() else ""
+                eid = str(int(src.athlete_id.dropna().iloc[-1])) if src.athlete_id.notna().any() else ""
+                for pr in props:
+                    bk = (book_props.get(eid) or {}).get(pr["stat"])
+                    if bk: pr.update(bk)
                 players.append({"id": f"{key(nm)}-{team}", "name": nm, "pos": pos, "team": team, "opp": opp, "home": home, "game": g["id"], "img": img,
                                 "status": status_of.get((key(nm), team), ""), "props": props, "usage": usage,
                                 "minPrior": r1(prior.minutes.mean()) if len(prior) else None})
@@ -228,7 +273,7 @@ def build(local=None, espn_dir=None):
     return {"generated": datetime.now(timezone.utc).isoformat(timespec="minutes"), "season": "2026-27",
             "statsThrough": pb.game_date.max() if len(pb) else None, "slateDays": sorted({g["day"] for g in slate}),
             "games": slate, "teams": teams, "league": league, "dvp": dvp, "dvpLeague": dvp_league,
-            "injuries": injuries, "players": players}
+            "injuries": injuries, "players": players, "propsAt": props_at, "propsBook": "DraftKings"}
 
 
 if __name__ == "__main__":

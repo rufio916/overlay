@@ -25,7 +25,7 @@
   <section id="props" hidden>
     <h2>NBA props</h2>
     <p class="lede">Players in tonight's and tomorrow's games, graded on how the opponent defends their position.</p>
-    <div class="banner"><b>PrizePicks lines aren't pulled for NBA,</b> to keep it free. Open a player, type the line from the app, and Overlay checks it against his games and this matchup.</div>
+    <div class="banner"><b>Lines shown are DraftKings', pulled free twice a day.</b> PrizePicks usually sits within half a point. Open a player and type the PrizePicks line to check it against his games and this matchup.</div>
     <button class="btn ftoggle" id="ftoggle" aria-expanded="false" aria-controls="filters">Filters</button>
     <div class="controls" id="filters">
       <label for="q">Player<input type="search" id="q" placeholder="Search name"></label>
@@ -127,13 +127,13 @@ function renderProps(){
   const avg=r=>r.pr.avg!=null?`${r.pr.avg}`:`<span class="sub" title="Last season">${r.pr.prior} ls</span>`;
   const st=r=>r.p.status?`<span class="st ${r.p.status==="Out"?"Out":"Questionable"}">${esc(r.p.status)}</span>`:"";
   $("#pbody").innerHTML=list.slice(0,300).map(r=>{const t=minTrend(r.p);const dp=r.pr.proj-(r.base||r.pr.proj);
-    return `<tr class="click" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}" title="Open full breakdown"><td>${head(r)}</td><td>${r.pr.stat}</td><td class="num">${avg(r)}</td>
+    return `<tr class="click" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}" title="Open full breakdown"><td>${head(r)}</td><td>${r.pr.stat}${r.pr.line!=null?`<div class="sub">DK ${r.pr.line}</div>`:""}</td><td class="num">${avg(r)}</td>
       <td class="num">${r.pr.proj} <span class="delta ${dp>.3?"up":dp<-.3?"dn":""}">${dp>=0?"+":""}${dp.toFixed(1)}</span></td>
       <td><span class="chip g-${r.g}" title="${esc(TN(r.p.opp))} allows ${r.d.avg} ${r.pr.stat.toLowerCase()} a game to ${POSN[r.p.pos]} (rank ${r.d.rank} of 30)">${r.g} matchup</span></td>
       <td><span class="trend ${t.cls}">${t.txt}</span></td><td>${st(r)}</td><td class="chev" aria-hidden="true">›</td></tr>`;}).join("");
   $("#pcards").innerHTML=list.slice(0,80).map(r=>{const t=minTrend(r.p);const dp=r.pr.proj-(r.base||r.pr.proj);return `<div class="pcard click" role="button" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}">
     <div class="top"><div style="min-width:0">${head(r)}</div>${st(r)}</div>
-    <div class="play"><span class="bigline">${r.pr.stat}</span><span class="sub">avg ${r.pr.avg??r.pr.prior} · our proj ${r.pr.proj}</span><span class="delta ${dp>.3?"up":dp<-.3?"dn":""}">${dp>=0?"+":""}${dp.toFixed(1)}</span></div>
+    <div class="play"><span class="bigline">${r.pr.stat}</span><span class="sub">${r.pr.line!=null?`DK line ${r.pr.line} · `:""}avg ${r.pr.avg??r.pr.prior} · our proj ${r.pr.proj}</span><span class="delta ${dp>.3?"up":dp<-.3?"dn":""}">${dp>=0?"+":""}${dp.toFixed(1)}</span></div>
     <div class="foot"><div class="play"><span class="chip g-${r.g}">${r.g} matchup</span><span class="trend ${t.cls}">${t.txt}</span></div><span class="more-link">Details ›</span></div></div>`;}).join("");
 }
 
@@ -158,7 +158,7 @@ function keyOuts(t,minMin=20){return (D.injuries[t]||[]).filter(x=>x.status==="O
 // ---------- player sheet ----------
 let cur=null;
 function openPlayer(pi,ki){const p=D.players[pi],pr=p.props[ki];const ex=state.legs.find(l=>l.id===p.id&&l.stat===pr.stat);
-  cur={pi,ki,side:ex?.side||"More",line:ex?.line??Math.max(.5,Math.round(pr.proj)-.5)};drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;$("#closebtn").focus();}
+  cur={pi,ki,side:ex?.side||"More",line:ex?.line??pr.line??Math.max(.5,Math.round(pr.proj)-.5)};drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;$("#closebtn").focus();}
 function hitStats(pr,line,side){const L=pr.log;const hit=v=>side==="More"?v.v>line:v.v<line;const l5=L.slice(-5);
   return{l5:l5.length?l5.filter(hit).length+"/"+l5.length:"–",season:L.length?L.filter(hit).length+"/"+L.length:"–",est:chance(pr,line,side)};}
 function hitsHtml(h){return `<div><span>Last 5</span><b>${h.l5}</b></div><div><span>Season</span><b>${h.season}</b></div><div><span>Est. chance</span><b style="color:${h.est>=state.be?"var(--pos)":"var(--fg)"}">${Math.round(h.est*100)}%</b></div>`;}
@@ -181,6 +181,7 @@ function drawSheet(){const {pi,ki}=cur;const p=D.players[pi],pr=p.props[ki];cons
    <div class="checker"><div class="row"><label for="lineinput" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase">PrizePicks line</label>
      <input type="number" id="lineinput" step="0.5" min="0" value="${cur.line}">
      <div class="seg"><button class="more" data-side="More" aria-pressed="${cur.side==="More"}">More</button><button class="less" data-side="Less" aria-pressed="${cur.side==="Less"}">Less</button></div></div>
+     ${pr.line!=null?`<p class="sub" style="margin:6px 0 0">DraftKings: ${pr.line} (Over ${fmtOdds(pr.overOdds)} / Under ${fmtOdds(pr.underOdds)}), so the book has Over at <b>${Math.round(pr.pOver*100)}%</b> after the vig${pr.lineOpen!=null&&pr.lineOpen!==pr.line?`. Opened at ${pr.lineOpen}`:""}.</p>`:""}
      <div class="hits" id="hitsbox">${hitsHtml(h)}</div>
      <div class="row" style="justify-content:space-between"><span class="sub">Needs about ${(state.be*100).toFixed(1)}% for a 6-pick Flex. Rough estimate from his games and this matchup.</span><button class="btn primary" id="addleg">${inSlip?"Update slip":"Add to slip"}</button></div></div>
    <div class="verdict ${kind}"><strong>${g} matchup for ${esc(pr.stat.toLowerCase())}</strong>${esc(TN(p.opp))} is ${soft} against ${POSN[p.pos]}: they allow ${d.avg} ${esc(pr.stat.toLowerCase())} a game to the position, ${Math.abs(pctDiff)}% ${pctDiff>=0?"above":"below"} the league average of ${lg} (rank ${d.rank} of 30, 30 allows the most). Our projection: <b>${pr.proj}</b> (${pr.avg!=null?`season avg ${pr.avg}`:"no games yet"}${pr.prior!=null?`, last season ${pr.prior}`:""}).</div>

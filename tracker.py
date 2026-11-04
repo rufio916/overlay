@@ -20,6 +20,9 @@ BREAK_EVEN = 0.542  # 6-pick Flex
 SHARP = ["pinnacle", "fanduel", "draftkings", "betmgm", "espnbet", "betrivers", "bovada"]
 BOOKW = {"pinnacle": 3, "fanduel": 1.5, "draftkings": 1.5, "betmgm": 1, "espnbet": 1, "betrivers": 1, "bovada": .5}
 NFL_COL = {"Pass Yds": "passing_yards", "Rush Yds": "rushing_yards", "Rec Yds": "receiving_yards", "Receptions": "receptions"}
+NBA_PROPS_PER_DAY = 8      # Overlay's daily NBA prop picks (biggest matchup boosts)
+NBA_PROP_MIN_CHANCE = .55  # Overlay must give the side at least 55%
+NBA_PROP_MIN_EDGE = .05    # ...and at least 5 points more than DraftKings does
 NBA_COL = {"Points": "points", "Rebounds": "rebounds", "Assists": "assists", "3-Pointers": "three_point_field_goals_made", "Pts+Reb+Ast": "pra"}
 NFLV = "https://github.com/nflverse/nflverse-data/releases/download"
 SDV = "https://github.com/sportsdataverse/sportsdataverse-data/releases/download"
@@ -126,6 +129,46 @@ def nba_leans(g, nba):
     return out
 
 
+def nba_rank(nba):
+    """NBA props ranked by how much the matchup and pace lift the projection above his usual."""
+    MIN = {"Points": 8, "Rebounds": 3, "Assists": 2, "3-Pointers": .9, "Pts+Reb+Ast": 14}
+    nba_props = []
+    for p in nba.get("players", []):
+        if p.get("status") in ("Out", "Doubtful"): continue
+        for pr in p["props"]:
+            base = pr.get("base") or pr.get("avg") or pr.get("prior")
+            if not base or base < MIN.get(pr["stat"], 0): continue
+            d = (nba.get("dvp", {}).get(p["opp"], {}) or {}).get(f"{p['pos']}|{pr['stat']}")
+            k = {"Points": .3, "Rebounds": .35, "Assists": .4, "3-Pointers": .6, "Pts+Reb+Ast": .25}[pr["stat"]]
+            sd = max(math.sqrt(.5 * pr["sd"] ** 2 + .5 * (k * max(pr["proj"], 1)) ** 2), 1)
+            nba_props.append({"name": p["name"], "team": p["team"], "opp": p["opp"], "home": p["home"], "pos": p["pos"], "stat": pr["stat"], "proj": pr["proj"], "base": base,
+                              "lift": round((pr["proj"] - base) / sd, 3), "rank": d["rank"] if d else None, "game": p["game"], "img": p.get("img", ""), "id": p["id"]})
+    return sorted(nba_props, key=lambda x: -x["lift"])
+
+
+def nba_picks(nba):
+    """Overlay's NBA prop picks: where its projection disagrees most with the DraftKings line.
+    chance = Overlay's estimate for the side it picks; mkt = DraftKings' no-vig chance for that side."""
+    K = {"Points": .3, "Rebounds": .35, "Assists": .4, "3-Pointers": .6, "Pts+Reb+Ast": .25}
+    out = []
+    for p in nba.get("players", []):
+        if p.get("status") in ("Out", "Doubtful"): continue
+        for pr in p["props"]:
+            if pr.get("line") is None or pr.get("pOver") is None: continue
+            sd = max(math.sqrt(.5 * pr["sd"] ** 2 + .5 * (K[pr["stat"]] * max(pr["proj"], 1)) ** 2), .8 if pr["stat"] == "3-Pointers" else 1)
+            if pr["stat"] == "3-Pointers":  # low counts: Poisson fits much better than a bell curve
+                lam = max(pr["proj"], .05); ours = 1 - sum(math.exp(-lam) * lam ** i / math.factorial(i) for i in range(int(math.floor(pr["line"])) + 1))
+            else:
+                ours = 1 - cdf((pr["line"] - pr["proj"]) / sd)
+            side = "More" if ours >= pr["pOver"] else "Less"
+            ch, mk = (ours, pr["pOver"]) if side == "More" else (1 - ours, 1 - pr["pOver"])
+            odds = pr["overOdds"] if side == "More" else pr["underOdds"]
+            if ch < NBA_PROP_MIN_CHANCE or ch - mk < NBA_PROP_MIN_EDGE or odds < -160: continue
+            out.append({"name": p["name"], "id": p["id"], "team": p["team"], "opp": p["opp"], "game": p["game"], "stat": pr["stat"], "line": pr["line"],
+                        "side": side, "odds": odds, "proj": pr["proj"], "chance": round(ch, 4), "mkt": round(mk, 4), "edge": round(ch - mk, 4), "img": p.get("img", "")})
+    return sorted(out, key=lambda x: -x["edge"])
+
+
 def run(a):
     nfl = load_json(a.nfl, {}); nba = load_json(a.nba, {})
     hist = load_json(a.history, {"picks": {}, "injurySnap": {}, "injuryNews": []})
@@ -160,6 +203,19 @@ def run(a):
             k = f"nba|{g['id']}|{l['type']}"
             picks[k] = {"sport": "nba", "game": g["id"], "away": g["away"], "home": g["home"], **l, "kickoff": g["start"], "logged": iso(t_now), "result": None}
 
+    starts = {str(g["id"]): g for g in nba_games}
+    for r in nba_picks(nba):
+        g = starts.get(str(r["game"]))
+        if not g or g.get("state") != "pre" or datetime.fromisoformat(g["start"].replace("Z", "+00:00")) <= t_now: continue
+        day = g["day"]; k = f"nba|prop|{g['id']}|{r['id']}|{r['stat']}"
+        if k in picks and picks[k].get("result") is not None: continue
+        if k not in picks:
+            if sum(p.get("type") == "prop" and p.get("day") == day for p in picks.values()) >= NBA_PROPS_PER_DAY: continue
+            if any(p.get("type") == "prop" and p.get("id") == r["id"] and str(p["game"]) == str(g["id"]) for p in picks.values()): continue  # one stat per player
+        picks[k] = {"sport": "nba", "type": "prop", "game": g["id"], "day": day, "away": g["away"], "home": g["home"], "name": r["name"], "id": r["id"],
+                    "team": r["team"], "opp": r["opp"], "stat": r["stat"], "line": r["line"], "side": r["side"], "odds": r["odds"], "proj": r["proj"],
+                    "chance": r["chance"], "mkt": r["mkt"], "kickoff": g["start"], "logged": iso(t_now), "result": None}
+
     # ---------- 2. grade finished picks ----------
     try:
         st = load_csv(f"{NFLV}/stats_player/stats_player_week_{nfl.get('season', 2026)}.csv", a.local, f"stats_player_week_{nfl.get('season', 2026)}.csv")
@@ -179,8 +235,17 @@ def run(a):
         sch = load_csv(f"{SDV}/espn_nba_schedules/nba_schedule_2027.csv", a.local, "nba_schedule_2027.csv")
         done = sch[sch.status_type_completed == True]
         final_nba = {str(r.game_id): r for r in done.itertuples()}
+        pbx = None
         for k, pk in picks.items():
             if pk["sport"] != "nba" or pk.get("result") is not None or str(pk["game"]) not in final_nba: continue
+            if pk.get("type") == "prop":
+                if pbx is None:
+                    pbx = load_csv(f"{SDV}/espn_nba_player_boxscores/player_box_2027.csv", a.local, "player_box_2027.csv")
+                    pbx["pra"] = pbx.points.fillna(0) + pbx.rebounds.fillna(0) + pbx.assists.fillna(0); pbx["k"] = pbx.athlete_display_name.map(norm)
+                row = pbx[(pbx.game_id.astype(str) == str(pk["game"])) & (pbx.k == norm(pk["name"]))]
+                if row.empty or row.iloc[0].did_not_play == True or pd.isna(row.iloc[0].minutes): pk["result"] = "void"; continue
+                v = float(row.iloc[0][NBA_COL[pk["stat"]]] or 0); pk["actual"] = v
+                pk["result"] = "push" if v == pk["line"] else ("win" if (v > pk["line"]) == (pk["side"] == "More") else "loss"); continue
             r = final_nba[str(pk["game"])]; h, aw = float(r.home_score), float(r.away_score); pk["final"] = f"{pk['away']} {int(aw)} · {pk['home']} {int(h)}"
             if pk["type"] == "spread":
                 margin = (h - aw) if pk["side"] == "H" else (aw - h); x = margin + pk["line"]
@@ -225,15 +290,27 @@ def run(a):
         w = sum(p["result"] == "win" for p in g)
         return {"n": len(g), "w": w, "l": len(g) - w, "pct": round(w / len(g), 3) if g else None}
     nflp = [p for p in picks.values() if p["sport"] == "nfl"]
+    top = []  # Overlay's 10 best-rated NFL props each week
+    for w in {p["week"] for p in nflp}:
+        top += sorted([p for p in nflp if p["week"] == w], key=lambda p: -p["chance"])[:10]
     buckets = []
     for lo, hi, label in ((.542, .56, "54–56%"), (.56, .58, "56–58%"), (.58, 1.01, "58%+")):
         sel = [p for p in nflp if lo <= p["chance"] < hi]; s = summary(sel)
         s["label"] = label; s["exp"] = round(sum(p["chance"] for p in sel if p.get("result") in ("win", "loss")) / s["n"], 3) if s["n"] else None
         buckets.append(s)
-    nbap = [p for p in picks.values() if p["sport"] == "nba"]
-    recent = sorted([p for p in picks.values() if p.get("result") in ("win", "loss", "push")], key=lambda p: p["kickoff"], reverse=True)[:40]
+    nbap = [p for p in picks.values() if p["sport"] == "nba" and p.get("type") != "prop"]
+    nbaprops = [p for p in picks.values() if p.get("type") == "prop"]
+    graded = sorted([p for p in picks.values() if p.get("result") in ("win", "loss", "push")], key=lambda p: p["kickoff"], reverse=True)
+    recent = {"nflProps": [p for p in graded if p["sport"] == "nfl"][:15], "nbaProps": [p for p in graded if p.get("type") == "prop"][:15],
+              "nbaTeams": [p for p in graded if p["sport"] == "nba" and p.get("type") != "prop"][:15]}
     track = {"nfl": {**summary(nflp), "buckets": buckets, "pending": sum(p.get("result") is None for p in nflp),
-                     "byWeek": {str(w): summary([p for p in nflp if p["week"] == w]) for w in sorted({p["week"] for p in nflp})}},
+                     "byWeek": {str(w): summary([p for p in nflp if p["week"] == w]) for w in sorted({p["week"] for p in nflp})},
+                     "top": {**summary(top), "pending": sum(p.get("result") is None for p in top),
+                             "byWeek": {str(w): summary([p for p in top if p["week"] == w]) for w in sorted({p["week"] for p in top})}}},
+             "nbaProps": {**summary(nbaprops), "pending": sum(p.get("result") is None for p in nbaprops),
+                          "ours": round(sum(p["chance"] for p in nbaprops if p.get("result") in ("win", "loss")) / max(1, summary(nbaprops)["n"]), 3),
+                          "mkt": round(sum(p["mkt"] for p in nbaprops if p.get("result") in ("win", "loss")) / max(1, summary(nbaprops)["n"]), 3),
+                          "byStat": {st_: summary([p for p in nbaprops if p["stat"] == st_]) for st_ in sorted({p["stat"] for p in nbaprops})}},
              "nba": {"spread": summary([p for p in nbap if p["type"] == "spread"]), "total": summary([p for p in nbap if p["type"] == "total"]),
                      "pending": sum(p.get("result") is None for p in nbap)},
              "recent": recent, "since": min((p["logged"] for p in picks.values()), default=None)}
@@ -247,19 +324,7 @@ def run(a):
         nba_day_games.append({"id": g["id"], "away": g["away"], "home": g["home"], "start": g["start"], "day": g["day"], "state": g.get("state"),
                               "pH": round(pH, 3) if pH is not None else None, "odds": g.get("odds"), "leans": nba_leans(g, nba) if g.get("state") == "pre" else [],
                               "model": {k: round(v, 1) for k, v in m.items()} if m else None, "scoreH": g.get("scoreH"), "scoreA": g.get("scoreA"), "detail": g.get("detail")})
-    MIN = {"Points": 8, "Rebounds": 3, "Assists": 2, "3-Pointers": .9, "Pts+Reb+Ast": 14}
-    nba_props = []
-    for p in nba.get("players", []):
-        if p.get("status") in ("Out",): continue
-        for pr in p["props"]:
-            base = pr.get("base") or pr.get("avg") or pr.get("prior")
-            if not base or base < MIN.get(pr["stat"], 0): continue
-            d = (nba.get("dvp", {}).get(p["opp"], {}) or {}).get(f"{p['pos']}|{pr['stat']}")
-            k = {"Points": .3, "Rebounds": .35, "Assists": .4, "3-Pointers": .6, "Pts+Reb+Ast": .25}[pr["stat"]]
-            sd = max(math.sqrt(.5 * pr["sd"] ** 2 + .5 * (k * max(pr["proj"], 1)) ** 2), 1)
-            nba_props.append({"name": p["name"], "team": p["team"], "opp": p["opp"], "home": p["home"], "pos": p["pos"], "stat": pr["stat"], "proj": pr["proj"], "base": base,
-                              "lift": round((pr["proj"] - base) / sd, 3), "rank": d["rank"] if d else None, "game": p["game"], "img": p.get("img", ""), "id": p["id"]})
-    nba_top = sorted(nba_props, key=lambda x: -x["lift"])[:12]
+    nba_top = nba_rank(nba)[:12]
 
     # recent results so saved bets can be graded in the browser
     res = {"nfl": {}, "nflGames": {}, "nba": {}, "nbaGames": {}}
@@ -303,8 +368,9 @@ def run(a):
         if g.get("mlH") is not None and g.get("mlA") is not None:
             pa, ph = imp(g["mlA"]), imp(g["mlH"]); pH = ph / (pa + ph)
         nfl_games_out.append({"id": g["id"], "away": g["away"], "home": g["home"], "kickoff": iso(nfl_kickoff(g)), "spread": g.get("spread"), "total": g.get("total"), "pH": round(pH, 3) if pH else None})
+    imgs = {p["id"]: p.get("img", "") for p in nba.get("players", [])}
     today = {"generated": iso(t_now), "nflWeek": nfl.get("week"), "nflLinesAt": fetched, "nflTop": nfl_top, "nflGames": nfl_games_out,
-             "nbaGames": nba_day_games, "nbaTop": nba_top, "nbaInjuries": nba_inj_now[:10], "injuryNews": {"nfl": nfl_inj, "nba": nba_inj},
+             "nbaGames": nba_day_games, "nbaTop": nba_top, "nbaPicks": sorted([{**p, "img": imgs.get(p["id"], "")} for p in picks.values() if p.get("type") == "prop" and (p.get("result") is None or p.get("day") == t_now.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d"))], key=lambda p: p["kickoff"])[:24], "nbaInjuries": nba_inj_now[:10], "injuryNews": {"nfl": nfl_inj, "nba": nba_inj},
              "track": track, "results": res, "credits": (nfl.get("odds") or {}).get("remaining")}
     json.dump(today, open(a.out, "w"), separators=(",", ":"))
     print(f"today: {len(nfl_top)} NFL picks, {len(nba_day_games)} NBA games, {len(nba_top)} NBA props; track NFL {track['nfl']['w']}-{track['nfl']['l']} "

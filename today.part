@@ -31,6 +31,8 @@
 .legline{font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:3px}
 .legline i{font-style:normal;font-weight:700}
 .legline i.win{color:var(--pos)} .legline i.loss{color:var(--neg)}
+details.recent summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 6px}
+details.recent[open] summary{color:var(--fg)}
 .quick{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 18px}
 .quick a{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 14px;text-decoration:none}
 .quick a:hover{border-color:var(--accent)}
@@ -51,6 +53,7 @@
     <div class="tsec">
       <div class="panel" id="nflpicks"></div>
       <div class="panel" id="nbagames"></div>
+      <div class="panel" id="nbapicks"></div>
       <div class="panel" id="nbaprops"></div>
     </div>
     <div class="tsec">
@@ -106,6 +109,14 @@ if(D.credits!=null)$("#credits").textContent=`Odds credits left: ${D.credits}.`;
     +`<p class="sub" style="margin-top:6px">Leans show up only when Overlay's rough score is 3+ points off the spread or 5+ off the total. They're tracked below so you can see whether they hold up.</p>`;
   $("#nbagames").innerHTML=h;})();
 
+// ---------- Overlay's NBA prop picks (tracked) ----------
+(function(){const L=D.nbaPicks||[];let h=`<h3>Overlay's NBA prop picks <span class="sub">Where our projection disagrees most with DraftKings · tracked below</span></h3>`;
+  h+=L.length?L.map(x=>`<a class="pickrow" href="nba.html?open=${encodeURIComponent(x.id+"|"+x.stat)}"><div class="who">${hs(x)}<div><div class="pname plink">${esc(x.name)}</div><div class="sub">${x.team} ${x.team===x.home?"vs":"@"} ${x.opp} · ${when(x.kickoff)}</div><div class="pickline"><span class="pick ${x.side==="More"?"more":"less"}">${x.side}</span><b>${x.line} ${esc(x.stat)}</b> <span class="sub">${fmtOdds(x.odds)}</span></div></div></div>
+    <div class="r stack">${x.result?`<span class="res ${x.result}">${x.result}${x.actual!=null?` · ${x.actual}`:""}</span>`:`<span class="edge big ${x.chance>=.542?"hot":"cold"}">${pct(x.chance)}</span><span class="sub">DK ${pct(x.mkt)}</span>`}</div></a>`).join("")
+    +`<p class="sub" style="margin-top:6px">Left %: Overlay's chance. DK %: DraftKings' chance after removing the vig. Up to 8 a day, logged before tip-off and graded after.</p>`
+    :'<p class="sub">No picks yet today. They show up once DraftKings posts player lines, usually by the morning refresh.</p>';
+  $("#nbapicks").innerHTML=h;})();
+
 // ---------- NBA best matchup props ----------
 (function(){const L=D.nbaTop||[];let h=`<h3>NBA matchups to look at <span class="sub">Biggest boost from the matchup and pace</span></h3>`;
   const by=[];L.forEach(r=>{const g=by.find(x=>x[0].id===r.id);g?g.push(r):by.push([r]);});
@@ -155,15 +166,23 @@ renderBets();
 document.addEventListener("click",e=>{const d=e.target.closest("[data-delbet]");if(d){BETS=BETS.filter(b=>String(b.id)!==d.dataset.delbet);saveBets();renderBets();toast("Deleted");}});
 
 // ---------- Overlay's own record ----------
-(function(){const T=D.track||{};const nf=T.nfl||{},nb=T.nba||{};const rec=s=>s&&s.n?`${s.w}-${s.l}`:"0-0";const p=s=>s&&s.n?pct(s.pct):"–";
-  let h=`<h3 id="record-h">Overlay's track record <span class="sub">Every pick logged before kickoff, graded after</span></h3>`;
-  h+=`<div class="sec">NFL props that beat the 54% break-even</div><div class="rec"><div><span>Record</span><b>${rec(nf)}</b></div><div><span>Hit rate</span><b>${p(nf)}</b></div><div><span>Pending</span><b>${nf.pending||0}</b></div></div>`;
-  if(nf.buckets&&nf.n)h+=`<div style="overflow-x:auto"><table class="mini"><thead><tr><th>Rated</th><th>Picks</th><th>Expected</th><th>Actual</th></tr></thead><tbody>${nf.buckets.map(b=>`<tr><td>${b.label}</td><td>${b.n}</td><td>${b.exp!=null?pct(b.exp):"–"}</td><td>${b.n?pct(b.pct):"–"}</td></tr>`).join("")}</tbody></table></div>`;
-  if(nf.byWeek)h+=`<p class="sub">${Object.entries(nf.byWeek).map(([w,s])=>`Week ${w}: ${s.w}-${s.l}`).join(" · ")}</p>`;
-  h+=`<div class="sec">NBA leans (rough team model vs DraftKings)</div><div class="rec"><div><span>Spreads</span><b>${rec(nb.spread)}</b></div><div><span>Totals</span><b>${rec(nb.total)}</b></div><div><span>Pending</span><b>${nb.pending||0}</b></div></div>`;
-  h+=`<p class="sub">Small samples swing a lot: 30 picks at a true 56% can easily go 12-18 or 21-9. Give it a few hundred picks before trusting the numbers either way. Weeks 6–7 were back-filled from the lines the site showed those Saturdays.</p>`;
-  const rc=(T.recent||[]).slice(0,12);
-  if(rc.length)h+=`<details class="inj"><summary>Recent graded picks ›</summary>${rc.map(x=>`<div class="legline"><i class="${x.result}">${x.result==="win"?"✓":x.result==="loss"?"✗":"–"}</i> ${x.sport==="nfl"?`${esc(x.name)} ${x.side} ${x.line} ${esc(x.stat)} (${pct(x.chance)}) → ${x.actual??"–"}`:`${x.away} @ ${x.home}: ${x.type==="spread"?`${x.team} ${x.line>0?"+":""}${x.line}`:`${x.side} ${x.line}`} → ${esc(x.final||"")}`}</div>`).join("")}</details>`;
+(function(){const T=D.track||{};const nf=T.nfl||{},nb=T.nba||{},np=T.nbaProps||{},top=nf.top||{};const rec=s=>s&&s.n?`${s.w}-${s.l}`:"0-0";const p=s=>s&&s.n?pct(s.pct):"–";
+  const tiles=(a,b,c)=>`<div class="rec">${[a,b,c].map(([k,v,col])=>`<div><span>${k}</span><b${col?` style="color:${col}"`:""}>${v}</b></div>`).join("")}</div>`;
+  const tone=(s,be)=>s&&s.n>=10?(s.pct>=be?"var(--pos)":"var(--neg)"):"";
+  const mark=x=>`<i class="${x.result}">${x.result==="win"?"✓":x.result==="loss"?"✗":"–"}</i>`;
+  let h=`<h3 id="record-h">Overlay's track record <span class="sub">Every pick is logged before the game starts and graded after</span></h3>`;
+  h+=`<div class="sec">NFL player props · Overlay's top 10 each week</div>`+tiles(["Record",rec(top)],["Hit rate",p(top),tone(top,.542)],["Pending",top.pending||0]);
+  if(top.byWeek)h+=`<p class="sub">${Object.entries(top.byWeek).map(([w,s])=>`Wk ${w}: ${s.w}-${s.l}`).join(" · ")} · Needs 54%+ to profit on a 6-pick Flex.</p>`;
+  h+=`<details class="recent"><summary>All NFL props rated 54%+: ${rec(nf)} (${p(nf)}) ›</summary><div style="overflow-x:auto"><table class="mini"><thead><tr><th>Rated</th><th>Picks</th><th>Expected</th><th>Actual</th></tr></thead><tbody>${(nf.buckets||[]).map(b=>`<tr><td>${b.label}</td><td>${b.n}</td><td>${b.exp!=null?pct(b.exp):"–"}</td><td>${b.n?pct(b.pct):"–"}</td></tr>`).join("")}</tbody></table></div><p class="sub">${Object.entries(nf.byWeek||{}).map(([w,s])=>`Wk ${w}: ${s.w}-${s.l}`).join(" · ")}</p></details>`;
+  h+=`<div class="sec">NBA player props · Overlay's picks vs the DraftKings line</div>`+tiles(["Record",rec(np)],["Hit rate",p(np),tone(np,.524)],["Pending",np.pending||0]);
+  h+=`<p class="sub">${np.n?`Overlay expected ${pct(np.ours)}; DraftKings' odds implied ${pct(np.mkt)}. Beating the DraftKings number is the real test. `:"Started Nov 4, so there's nothing graded yet. "}${np.byStat&&np.n?Object.entries(np.byStat).filter(([,s])=>s.n).map(([k,s])=>`${k}: ${s.w}-${s.l}`).join(" · "):""}</p>`;
+  h+=`<div class="sec">NBA team leans · rough model vs DraftKings</div>`+tiles(["Spreads",rec(nb.spread),tone(nb.spread,.524)],["Totals",rec(nb.total),tone(nb.total,.524)],["Pending",nb.pending||0]);
+  h+=`<p class="sub">Spreads and totals need 52.4% to profit at -110. Small samples swing a lot: 30 picks at a true 56% can easily go 12-18 or 21-9, so give it a few hundred picks before trusting the numbers either way. NFL weeks 6–7 were back-filled from the lines the site showed those Saturdays.</p>`;
+  const R=T.recent||{};
+  const lists=[["NFL props",R.nflProps,x=>`${esc(x.name)} ${x.side} ${x.line} ${esc(x.stat)} <span>(${pct(x.chance)})</span> → <b>${x.actual??"–"}</b>`],
+    ["NBA props",R.nbaProps,x=>`${esc(x.name)} ${x.side} ${x.line} ${esc(x.stat)} <span>(${pct(x.chance)})</span> → <b>${x.actual??"–"}</b>`],
+    ["NBA team leans",R.nbaTeams,x=>`${x.away} @ ${x.home}: ${x.type==="spread"?`${x.team} ${x.line>0?"+":""}${x.line}`:`${x.side} ${x.line}`} → ${esc(x.final||"")}`]];
+  for(const [t,L,f] of lists)if(L&&L.length)h+=`<details class="recent"><summary>Recent ${t} ›</summary>${L.map(x=>`<div class="legline">${mark(x)} ${f(x)}</div>`).join("")}</details>`;
   $("#record").innerHTML=h;})();
 if(location.hash){const el=document.getElementById(location.hash.slice(1));if(el)el.scrollIntoView();}
 </script>
