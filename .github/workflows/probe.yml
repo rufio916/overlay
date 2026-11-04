@@ -12,8 +12,11 @@ jobs:
           items = json.load(open("p1.json"))["items"] + json.load(open("p2.json")).get("items", [])
           print("n", len(items)); print("keys", sorted({k for i in items for k in i}))
           print(collections.Counter(i["type"]["name"] for i in items).most_common(40))
-          a = items[0]["athlete"]["$ref"].split("athletes/")[1].split("?")[0]
-          for i in [x for x in items if x["athlete"]["$ref"].split("athletes/")[1].split("?")[0] == a][:40]:
-              print(i["type"]["name"], i["odds"].get("total"), i["odds"]["american"], i.get("current"), {k: v for k, v in i.items() if k not in ("competition", "athlete", "provider", "type", "odds", "current", "open", "lastUpdated")})
+          print([x for x in collections.Counter(i["type"]["name"] for i in items).items() if not x[0].endswith("Milestones") and "Quarter" not in x[0]])
+          tot = [i for i in items if i["type"]["name"].startswith("Total") and "athlete" in i]
+          a = tot[0]["athlete"]["$ref"]
+          for i in [x for x in tot if x["athlete"]["$ref"] == a][:14]:
+              print(json.dumps({k: v for k, v in i.items() if k not in ("competition", "provider")})[:700])
+          print("no athlete:", json.dumps([i for i in items if "athlete" not in i][:1])[:600])
           PY
           curl -sS "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events?lang=en&region=us&limit=3" | head -c 600; echo
