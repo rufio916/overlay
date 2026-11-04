@@ -5,6 +5,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          B=https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/events/401909922/competitions/401909922
-          curl -sS "$B/odds?lang=en&region=us" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('count'));[print(i.get('provider',{}).get('id'),i.get('provider',{}).get('name'),list(i.keys())[:25]) for i in d.get('items',[])]"
-          for P in 100 58 1002 40 200; do echo "== provider $P"; curl -sS "$B/odds/$P/propBets?lang=en&region=us&limit=5" | head -c 2500; echo; done
+          B=https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/events/401909922/competitions/401909922/odds/100/propBets
+          curl -sS "$B?lang=en&region=us&limit=1000" > p1.json; curl -sS "$B?lang=en&region=us&limit=1000&page=2" > p2.json
+          python3 - <<'PY'
+          import json, collections
+          items = json.load(open("p1.json"))["items"] + json.load(open("p2.json")).get("items", [])
+          print("n", len(items)); print("keys", sorted({k for i in items for k in i}))
+          print(collections.Counter(i["type"]["name"] for i in items).most_common(40))
+          a = items[0]["athlete"]["$ref"].split("athletes/")[1].split("?")[0]
+          for i in [x for x in items if x["athlete"]["$ref"].split("athletes/")[1].split("?")[0] == a][:40]:
+              print(i["type"]["name"], i["odds"].get("total"), i["odds"]["american"], i.get("current"), {k: v for k, v in i.items() if k not in ("competition", "athlete", "provider", "type", "odds", "current", "open", "lastUpdated")})
+          PY
+          curl -sS "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events?lang=en&region=us&limit=3" | head -c 600; echo
