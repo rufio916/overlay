@@ -23,6 +23,7 @@ NFL_COL = {"Pass Yds": "passing_yards", "Rush Yds": "rushing_yards", "Rec Yds": 
 NBA_PROPS_PER_DAY = 8      # Overlay's daily NBA prop picks (biggest matchup boosts)
 NBA_PROP_MIN_CHANCE = .55  # Overlay must give the side at least 55%
 NBA_PROP_MIN_EDGE = .05    # ...and at least 5 points more than DraftKings does
+NBA_PROP_MAX_EDGE = .20    # a bigger gap usually means the book knows something we don't (minutes, injuries), so skip it
 NBA_COL = {"Points": "points", "Rebounds": "rebounds", "Assists": "assists", "3-Pointers": "three_point_field_goals_made", "Pts+Reb+Ast": "pra"}
 NFLV = "https://github.com/nflverse/nflverse-data/releases/download"
 SDV = "https://github.com/sportsdataverse/sportsdataverse-data/releases/download"
@@ -163,7 +164,7 @@ def nba_picks(nba):
             side = "More" if ours >= pr["pOver"] else "Less"
             ch, mk = (ours, pr["pOver"]) if side == "More" else (1 - ours, 1 - pr["pOver"])
             odds = pr["overOdds"] if side == "More" else pr["underOdds"]
-            if ch < NBA_PROP_MIN_CHANCE or ch - mk < NBA_PROP_MIN_EDGE or odds < -160: continue
+            if ch < NBA_PROP_MIN_CHANCE or not NBA_PROP_MIN_EDGE <= ch - mk <= NBA_PROP_MAX_EDGE or odds < -160: continue
             out.append({"name": p["name"], "id": p["id"], "team": p["team"], "opp": p["opp"], "game": p["game"], "stat": pr["stat"], "line": pr["line"],
                         "side": side, "odds": odds, "proj": pr["proj"], "chance": round(ch, 4), "mkt": round(mk, 4), "edge": round(ch - mk, 4), "img": p.get("img", "")})
     return sorted(out, key=lambda x: -x["edge"])

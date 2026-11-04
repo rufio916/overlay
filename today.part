@@ -110,7 +110,7 @@ if(D.credits!=null)$("#credits").textContent=`Odds credits left: ${D.credits}.`;
   $("#nbagames").innerHTML=h;})();
 
 // ---------- Overlay's NBA prop picks (tracked) ----------
-(function(){const L=D.nbaPicks||[];let h=`<h3>Overlay's NBA prop picks <span class="sub">Where our projection disagrees most with DraftKings · tracked below</span></h3>`;
+(function(){const A=D.nbaPicks||[];const days=[...new Set(A.map(x=>x.day))].sort();const dd=days.includes(todayPT)?todayPT:days.find(d=>d>todayPT);const L=A.filter(x=>x.day===dd);let h=`<h3>Overlay's NBA prop picks <span class="sub">Where our projection disagrees most with DraftKings · tracked below</span></h3>`;
   h+=L.length?L.map(x=>`<a class="pickrow" href="nba.html?open=${encodeURIComponent(x.id+"|"+x.stat)}"><div class="who">${hs(x)}<div><div class="pname plink">${esc(x.name)}</div><div class="sub">${x.team} ${x.team===x.home?"vs":"@"} ${x.opp} · ${when(x.kickoff)}</div><div class="pickline"><span class="pick ${x.side==="More"?"more":"less"}">${x.side}</span><b>${x.line} ${esc(x.stat)}</b> <span class="sub">${fmtOdds(x.odds)}</span></div></div></div>
     <div class="r stack">${x.result?`<span class="res ${x.result}">${x.result}${x.actual!=null?` · ${x.actual}`:""}</span>`:`<span class="edge big ${x.chance>=.542?"hot":"cold"}">${pct(x.chance)}</span><span class="sub">DK ${pct(x.mkt)}</span>`}</div></a>`).join("")
     +`<p class="sub" style="margin-top:6px">Left %: Overlay's chance. DK %: DraftKings' chance after removing the vig. Up to 8 a day, logged before tip-off and graded after.</p>`

@@ -206,7 +206,7 @@ def build(local=None, espn_dir=None):
     if not local or espn_dir:
         for g in slate:
             if g["state"] != "pre": continue
-            try: book_props.update(fetch_props(g["id"], espn_dir)); props_at = datetime.now(timezone.utc).isoformat(timespec="minutes")
+            try: book_props[str(g["id"])] = fetch_props(g["id"], espn_dir); props_at = datetime.now(timezone.utc).isoformat(timespec="minutes")
             except Exception as e: print("props skipped for", g["id"], e)
 
     # ---- injuries (ESPN) ----
@@ -264,7 +264,7 @@ def build(local=None, espn_dir=None):
                 img = src.athlete_headshot_href.dropna().iloc[-1] if "athlete_headshot_href" in src and src.athlete_headshot_href.notna().any() else ""
                 eid = str(int(src.athlete_id.dropna().iloc[-1])) if src.athlete_id.notna().any() else ""
                 for pr in props:
-                    bk = (book_props.get(eid) or {}).get(pr["stat"])
+                    bk = ((book_props.get(str(g["id"])) or {}).get(eid) or {}).get(pr["stat"])
                     if bk: pr.update(bk)
                 players.append({"id": f"{key(nm)}-{team}", "name": nm, "pos": pos, "team": team, "opp": opp, "home": home, "game": g["id"], "img": img,
                                 "status": status_of.get((key(nm), team), ""), "props": props, "usage": usage,
