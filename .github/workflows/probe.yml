@@ -1,0 +1,10 @@
+name: probe (temporary)
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          B=https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/events/401909922/competitions/401909922
+          curl -sS "$B/odds?lang=en&region=us" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('count'));[print(i.get('provider',{}).get('id'),i.get('provider',{}).get('name'),list(i.keys())[:25]) for i in d.get('items',[])]"
+          for P in 100 58 1002 40 200; do echo "== provider $P"; curl -sS "$B/odds/$P/propBets?lang=en&region=us&limit=5" | head -c 2500; echo; done
