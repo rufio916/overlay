@@ -33,6 +33,17 @@
 .legline i.win{color:var(--pos)} .legline i.loss{color:var(--neg)}
 details.recent summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 6px}
 details.recent[open] summary{color:var(--fg)}
+.ghead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:14px 0 2px;padding:8px 10px;background:var(--raised);border-radius:6px;font-weight:600;text-decoration:none;color:inherit}
+.ghead:first-of-type{margin-top:6px}
+.ghead .sub{font-weight:400;white-space:nowrap}
+details.gsum>summary{list-style:none;cursor:pointer}
+details.gsum>summary::-webkit-details-marker{display:none}
+details.gsum>summary .ghead::after{content:"›";margin-left:6px;color:var(--muted);transition:transform .15s}
+details.gsum[open]>summary .ghead::after{transform:rotate(90deg)}
+.dayhead{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:4px 0}
+.tag{font-size:11px;color:var(--muted);font-family:var(--mono)}
+html{scroll-behavior:smooth}
+.panel{scroll-margin-top:80px}
 .quick{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 18px}
 .quick a{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 14px;text-decoration:none}
 .quick a:hover{border-color:var(--accent)}
@@ -48,18 +59,17 @@ details.recent[open] summary{color:var(--fg)}
 <main class="wrap">
   <h2 id="ttitle">Today</h2>
   <p class="lede" id="tlede"></p>
-  <div class="quick"><a href="nfl.html?tab=match">NFL props</a><a href="nba.html?tab=games">NBA games</a><a href="nfl.html?tab=pickem">Pick'em</a><a href="nfl.html?tab=fantasy">Fantasy</a><a href="#mybets">My bets</a><a href="#record">Overlay's record</a></div>
+  <div class="quick"><a href="#nflpicks">NFL picks</a><a href="#nbapicks">NBA picks</a><a href="#record">Track record</a><a href="#mybets">My bets</a><a href="nfl.html?tab=pickem">Pick'em</a><a href="nfl.html?tab=fantasy">Fantasy</a></div>
   <div class="tgrid">
     <div class="tsec">
       <div class="panel" id="nflpicks"></div>
-      <div class="panel" id="nbagames"></div>
       <div class="panel" id="nbapicks"></div>
-      <div class="panel" id="nbaprops"></div>
+      <div class="panel" id="nbagames"></div>
     </div>
     <div class="tsec">
-      <div class="panel" id="news"></div>
-      <div class="panel" id="mybets"></div>
       <div class="panel" id="record"></div>
+      <div class="panel" id="mybets"></div>
+      <div class="panel" id="news"></div>
     </div>
   </div>
 </main>
@@ -92,15 +102,28 @@ $("#tlede").textContent=`${nbaToday.length?`${nbaToday.length} NBA game${nbaToda
 $("#updated").textContent="Updated "+new Date(D.generated).toLocaleString("en-US",{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+".";
 if(D.credits!=null)$("#credits").textContent=`Odds credits left: ${D.credits}.`;
 
-// ---------- best NFL props ----------
-(function(){const L=D.nflTop||[];let h=`<h3>Best NFL props <span class="sub">Sportsbooks' chance to hit · Week ${D.nflWeek}</span></h3>`;
-  if(!L.length)h+=`<p class="sub">${D.nflLinesAt?"No props above the 54% break-even right now.":"This week's PrizePicks lines arrive with Thursday's ~10 AM pull, then again Saturday."} <a href="nfl.html?tab=match" style="color:var(--accent)">Open NFL props ›</a></p>`;
-  else h+=L.map(r=>`<a class="pickrow" href="nfl.html?open=${encodeURIComponent(norm(r.name)+"|"+r.stat)}"><div class="who">${hs(r)}<div><div class="pname plink">${esc(r.name)}</div><div class="sub">${r.pos} · ${r.team} vs ${r.opp} · ${when(r.kickoff)}</div><div class="pickline"><span class="pick ${r.side==="More"?"more":"less"}">${r.side}</span><b>${r.line} ${esc(r.stat)}</b></div></div></div>
-    <div class="r"><span class="edge big ${r.chance>=.542?"hot":"cold"}">${pct(r.chance)}</span></div></a>`).join("")+`<p class="sub" style="margin-top:6px">Lines as of ${D.nflLinesAt?when(D.nflLinesAt):"–"}. Green beats a 6-pick Flex (54%). Check the app before playing.</p>`;
+// ---------- one pick row, same look for NFL and NBA ----------
+const dayPT=iso=>new Date(iso).toLocaleDateString("en-CA",{timeZone:"America/Los_Angeles"});
+function pickRow(x,href,meta,second){const done=x.result&&x.result!=="void";
+  return `<a class="pickrow" href="${href}"><div class="who">${hs(x)}<div><div class="pname plink">${esc(x.name)}</div><div class="sub">${meta}</div><div class="pickline"><span class="pick ${x.side==="More"?"more":"less"}">${x.side}</span><b>${x.line} ${esc(x.stat)}</b>${x.odds!=null?` <span class="tag">${fmtOdds(x.odds)}</span>`:""}</div></div></div>
+    <div class="r stack">${x.result?`<span class="res ${x.result}">${x.result}</span>${x.actual!=null?`<span class="tag">had ${x.actual}</span>`:""}`:`<span class="edge big ${x.chance>=.542?"hot":"cold"}">${pct(x.chance)}</span>${second?`<span class="tag">${second}</span>`:""}`}</div></a>`;}
+
+// ---------- Overlay's NFL prop picks (tracked) ----------
+(function(){const G=(D.nflPicks||[]).filter(g=>g.picks.length||(g.close||[]).length);let h=`<h3>Overlay's NFL prop picks <span class="sub">The 3 best-rated props in each game · Week ${D.nflWeek} · tracked in the record</span></h3>`;
+  const days=[...new Set(G.map(g=>dayPT(g.kickoff)))].sort();const dd=days.includes(todayPT)?todayPT:days.find(d=>d>todayPT);const S=G.filter(g=>dayPT(g.kickoff)===dd);
+  if(!S.length){h+=`<p class="sub">${D.nflLinesAt?"No props cleared the 54% break-even for the next games yet.":"Picks show up after the Thursday and Saturday morning line pulls."} <a href="nfl.html?tab=match" style="color:var(--accent)">All NFL props ›</a></p>`;$("#nflpicks").innerHTML=h;return;}
+  const label=dd===todayPT?"Today":new Date(dd+"T12:00").toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"});
+  h+=`<div class="dayhead">${label} · ${S.length} game${S.length>1?"s":""}</div>`;
+  h+=S.map((g,k)=>{const head=`<div class="ghead"><span>${logo("nfl",g.away)} ${g.away} @ ${logo("nfl",g.home)} ${g.home}</span><span class="sub">${new Date(g.kickoff).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span></div>`;
+    const rows=g.picks.map(x=>pickRow(x,`nfl.html?open=${encodeURIComponent(norm(x.name)+"|"+x.stat)}`,`${x.pos?x.pos+" · ":""}${x.team} ${x.team===g.home?"vs":"@"} ${x.opp}`,"")).join("")
+      +((g.close||[]).length?`<div class="sub" style="margin:8px 0 0">${g.picks.length?"Next closest (under 54%, not tracked)":"Nothing cleared 54% here. Closest (not tracked)"}:</div>`+g.close.map(x=>pickRow(x,`nfl.html?open=${encodeURIComponent(norm(x.name)+"|"+x.stat)}`,`${x.pos?x.pos+" · ":""}${x.team} ${x.team===g.home?"vs":"@"} ${x.opp}`,"")).join(""):"");
+    return S.length>3?`<details class="gsum"${k<2?" open":""}><summary>${head}</summary>${rows}</details>`:head+rows;}).join("");
+  const more=G.filter(g=>dayPT(g.kickoff)>dd).length;
+  h+=`<p class="sub" style="margin-top:8px">% = sportsbooks' consensus chance to hit at the PrizePicks line. Lines as of ${D.nflLinesAt?when(D.nflLinesAt):"–"}.${more?` ${more} more game${more>1?"s":""} later this week.`:""} <a href="nfl.html?tab=match" style="color:var(--accent)">All NFL props ›</a></p>`;
   $("#nflpicks").innerHTML=h;})();
 
 // ---------- NBA games + leans ----------
-(function(){const G=D.nbaGames.filter(g=>g.day===todayPT||!nbaToday.length);let h=`<h3>NBA ${nbaToday.length?"today":"next up"} <span class="sub">Win chance from DraftKings, plus Overlay's leans</span></h3>`;
+(function(){const G=D.nbaGames.filter(g=>g.day===todayPT||!nbaToday.length);let h=`<h3>NBA games ${nbaToday.length?"today":"next up"} <span class="sub">Win chance from DraftKings, plus Overlay's spread and total leans</span></h3>`;
   if(!G.length){$("#nbagames").innerHTML=h+'<p class="sub">No games scheduled.</p>';return;}
   h+=G.map(g=>{const live=g.state==="in",fin=g.state==="post";const o=g.odds||{};
     const leans=(g.leans||[]).map(l=>`<span class="leanchip" title="Overlay's rough number is ${l.by} points off the line">Lean ${l.type==="spread"?`${l.team} ${l.line>0?"+":""}${l.line}`:`${l.side} ${l.line}`}</span>`).join(" ");
@@ -110,26 +133,19 @@ if(D.credits!=null)$("#credits").textContent=`Odds credits left: ${D.credits}.`;
   $("#nbagames").innerHTML=h;})();
 
 // ---------- Overlay's NBA prop picks (tracked) ----------
-(function(){const A=D.nbaPicks||[];const days=[...new Set(A.map(x=>x.day))].sort();const dd=days.includes(todayPT)?todayPT:days.find(d=>d>todayPT);const L=A.filter(x=>x.day===dd);let h=`<h3>Overlay's NBA prop picks <span class="sub">Where our projection disagrees most with DraftKings · tracked below</span></h3>`;
-  h+=L.length?L.map(x=>`<a class="pickrow" href="nba.html?open=${encodeURIComponent(x.id+"|"+x.stat)}"><div class="who">${hs(x)}<div><div class="pname plink">${esc(x.name)}</div><div class="sub">${x.team} ${x.team===x.home?"vs":"@"} ${x.opp} · ${when(x.kickoff)}</div><div class="pickline"><span class="pick ${x.side==="More"?"more":"less"}">${x.side}</span><b>${x.line} ${esc(x.stat)}</b> <span class="sub">${fmtOdds(x.odds)}</span></div></div></div>
-    <div class="r stack">${x.result?`<span class="res ${x.result}">${x.result}${x.actual!=null?` · ${x.actual}`:""}</span>`:`<span class="edge big ${x.chance>=.542?"hot":"cold"}">${pct(x.chance)}</span><span class="sub">DK ${pct(x.mkt)}</span>`}</div></a>`).join("")
-    +`<p class="sub" style="margin-top:6px">Left %: Overlay's chance. DK %: DraftKings' chance after removing the vig. Up to 8 a day, logged before tip-off and graded after.</p>`
+(function(){const A=D.nbaPicks||[];const days=[...new Set(A.map(x=>x.day))].sort();const dd=days.includes(todayPT)?todayPT:days.find(d=>d>todayPT);const L=A.filter(x=>x.day===dd).sort((a,b)=>a.kickoff.localeCompare(b.kickoff)||b.chance-a.chance);
+  let h=`<h3>Overlay's NBA prop picks <span class="sub">Where our projection disagrees most with DraftKings · up to 8 a day · tracked in the record</span></h3>`;
+  if(L.length)h+=`<div class="dayhead">${dd===todayPT?"Today":new Date(dd+"T12:00").toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"})}</div>`;
+  h+=L.length?L.map(x=>pickRow(x,`nba.html?open=${encodeURIComponent(x.id+"|"+x.stat)}`,`${x.team} ${x.team===x.home?"vs":"@"} ${x.opp} · ${new Date(x.kickoff).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}`,`DK ${pct(x.mkt)}`)).join("")
+    +`<p class="sub" style="margin-top:8px">Big % = Overlay's chance. DK = DraftKings' chance after the vig. Overlay has been overconfident so far, so lean on the record below before trusting these.</p>`
     :'<p class="sub">No picks yet today. They show up once DraftKings posts player lines, usually by the morning refresh.</p>';
   $("#nbapicks").innerHTML=h;})();
-
-// ---------- NBA best matchup props ----------
-(function(){const L=D.nbaTop||[];let h=`<h3>NBA matchups to look at <span class="sub">Biggest boost from the matchup and pace</span></h3>`;
-  const by=[];L.forEach(r=>{const g=by.find(x=>x[0].id===r.id);g?g.push(r):by.push([r]);});
-  const SHORT={"Pts+Reb+Ast":"PRA","3-Pointers":"3PM","Rebounds":"Reb","Assists":"Ast","Points":"Pts"};
-  h+=by.length?by.map(g=>{const r=g[0];const rk=Math.max(...g.map(x=>x.rank||0));return `<a class="pickrow" href="nba.html?open=${encodeURIComponent(r.id+"|"+r.stat)}"><div class="who">${hs(r)}<div><div class="pname plink">${esc(r.name)}</div><div class="sub">${r.pos} · ${r.team} ${r.home?"vs":"@"} ${r.opp}</div>${rk?`<div class="sub">${r.opp} defense ranks #${rk} of 30</div>`:""}</div></div>
-    <div class="r stack">${g.map(x=>`<div class="statline"><span class="sub">${SHORT[x.stat]||esc(x.stat)}</span><span class="big2">${x.proj}</span><span class="delta up">+${(x.proj-x.base).toFixed(1)}</span></div>`).join("")}</div></a>`;}).join("")+`<p class="sub" style="margin-top:6px">Projection vs his usual. No PrizePicks lines for NBA here; type the line on the player's page to check it.</p>`:'<p class="sub">No games on the board.</p>';
-  $("#nbaprops").innerHTML=h;})();
 
 // ---------- injury news ----------
 (function(){const n=D.injuryNews||{nfl:[],nba:[]};const items=[...n.nfl.map(x=>({...x,sp:"nfl"})),...n.nba.map(x=>({...x,sp:"nba"}))].sort((a,b)=>new Date(b.at)-new Date(a.at)).slice(0,10);
   let h='<h3>Injury news <span class="sub">Status changes since earlier refreshes</span></h3>';
   h+=items.length?items.map(x=>`<div class="newsrow">${logo(x.sp,x.team,18)} <b>${esc(x.name)}</b> <span class="sub">(${x.team})</span>: ${esc(x.was)} → <b>${esc(x.status)}</b> <span class="sub">· ${ago(x.at)}</span></div>`).join(""):'<p class="sub">No status changes yet. This fills in as the daily refreshes spot new reports.</p>';
-  const out=D.nbaInjuries||[];if(out.length)h+=`<div class="sec">NBA players out or questionable today</div>`+out.slice(0,8).map(x=>`<div class="newsrow">${logo("nba",x.team,18)} <b>${esc(x.name)}</b> <span class="sub">(${x.team}, ${x.pts} pts, ${x.min} min)</span>: <b>${esc(x.status)}</b>${x.note?`<div class="sub">${esc(x.note)}</div>`:""}</div>`).join("");
+  const out=D.nbaInjuries||[];if(out.length)h+=`<details class="recent"><summary>NBA players out or questionable (${Math.min(out.length,8)}) ›</summary>`+out.slice(0,8).map(x=>`<div class="newsrow">${logo("nba",x.team,18)} <b>${esc(x.name)}</b> <span class="sub">(${x.team}, ${x.pts} pts, ${x.min} min)</span>: <b>${esc(x.status)}</b>${x.note?`<div class="sub">${esc(x.note)}</div>`:""}</div>`).join("")+"</details>";
   $("#news").innerHTML=h;})();
 
 // ---------- my bets (saved on this device, graded from results) ----------
@@ -171,13 +187,13 @@ document.addEventListener("click",e=>{const d=e.target.closest("[data-delbet]");
   const tone=(s,be)=>s&&s.n>=10?(s.pct>=be?"var(--pos)":"var(--neg)"):"";
   const mark=x=>`<i class="${x.result}">${x.result==="win"?"✓":x.result==="loss"?"✗":"–"}</i>`;
   let h=`<h3 id="record-h">Overlay's track record <span class="sub">Every pick is logged before the game starts and graded after</span></h3>`;
-  h+=`<div class="sec">NFL player props · Overlay's top 10 each week</div>`+tiles(["Record",rec(top)],["Hit rate",p(top),tone(top,.542)],["Pending",top.pending||0]);
-  if(top.byWeek)h+=`<p class="sub">${Object.entries(top.byWeek).map(([w,s])=>`Wk ${w}: ${s.w}-${s.l}`).join(" · ")} · Needs 54%+ to profit on a 6-pick Flex.</p>`;
+  h+=`<div class="sec">NFL player props · Overlay's picks (best 3 per game)</div>`+tiles(["Record",rec(top)],["Hit rate",p(top),tone(top,.542)],["Pending",top.pending||0]);
+  if(top.byWeek)h+=`<p class="sub">${Object.entries(top.byWeek).filter(([,s])=>s.n).map(([w,s])=>`Wk ${w}: ${s.w}-${s.l}`).join(" · ")} · Needs 54%+ to profit on a 6-pick Flex.</p>`;
   h+=`<details class="recent"><summary>All NFL props rated 54%+: ${rec(nf)} (${p(nf)}) ›</summary><div style="overflow-x:auto"><table class="mini"><thead><tr><th>Rated</th><th>Picks</th><th>Expected</th><th>Actual</th></tr></thead><tbody>${(nf.buckets||[]).map(b=>`<tr><td>${b.label}</td><td>${b.n}</td><td>${b.exp!=null?pct(b.exp):"–"}</td><td>${b.n?pct(b.pct):"–"}</td></tr>`).join("")}</tbody></table></div><p class="sub">${Object.entries(nf.byWeek||{}).map(([w,s])=>`Wk ${w}: ${s.w}-${s.l}`).join(" · ")}</p></details>`;
   h+=`<div class="sec">NBA player props · Overlay's picks vs the DraftKings line</div>`+tiles(["Record",rec(np)],["Hit rate",p(np),tone(np,.524)],["Pending",np.pending||0]);
   h+=`<p class="sub">${np.n?`Overlay expected ${pct(np.ours)}; DraftKings' odds implied ${pct(np.mkt)}. Beating the DraftKings number is the real test. `:"Started Nov 4, so there's nothing graded yet. "}${np.byStat&&np.n?Object.entries(np.byStat).filter(([,s])=>s.n).map(([k,s])=>`${k}: ${s.w}-${s.l}`).join(" · "):""}</p>`;
   h+=`<div class="sec">NBA team leans · rough model vs DraftKings</div>`+tiles(["Spreads",rec(nb.spread),tone(nb.spread,.524)],["Totals",rec(nb.total),tone(nb.total,.524)],["Pending",nb.pending||0]);
-  h+=`<p class="sub">Spreads and totals need 52.4% to profit at -110. Small samples swing a lot: 30 picks at a true 56% can easily go 12-18 or 21-9, so give it a few hundred picks before trusting the numbers either way. NFL weeks 6–7 were back-filled from the lines the site showed those Saturdays.</p>`;
+  h+=`<p class="sub">Spreads and totals need 52.4% to profit at -110. Small samples swing a lot, so give any of these a few hundred picks before trusting them. NFL weeks 6–7 were back-filled from the lines the site showed those Saturdays.</p>`;
   const R=T.recent||{};
   const lists=[["NFL props",R.nflProps,x=>`${esc(x.name)} ${x.side} ${x.line} ${esc(x.stat)} <span>(${pct(x.chance)})</span> → <b>${x.actual??"–"}</b>`],
     ["NBA props",R.nbaProps,x=>`${esc(x.name)} ${x.side} ${x.line} ${esc(x.stat)} <span>(${pct(x.chance)})</span> → <b>${x.actual??"–"}</b>`],

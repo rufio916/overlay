@@ -20,6 +20,7 @@ BREAK_EVEN = 0.542  # 6-pick Flex
 SHARP = ["pinnacle", "fanduel", "draftkings", "betmgm", "espnbet", "betrivers", "bovada"]
 BOOKW = {"pinnacle": 3, "fanduel": 1.5, "draftkings": 1.5, "betmgm": 1, "espnbet": 1, "betrivers": 1, "bovada": .5}
 NFL_COL = {"Pass Yds": "passing_yards", "Rush Yds": "rushing_yards", "Rec Yds": "receiving_yards", "Receptions": "receptions"}
+NFL_PICKS_PER_GAME = 3     # Overlay's NFL picks: best 3 props (54%+) in each game
 NBA_PROPS_PER_DAY = 8      # Overlay's daily NBA prop picks (biggest matchup boosts)
 NBA_PROP_MIN_CHANCE = .55  # Overlay must give the side at least 55%
 NBA_PROP_MIN_EDGE = .05    # ...and at least 5 points more than DraftKings does
@@ -291,9 +292,9 @@ def run(a):
         w = sum(p["result"] == "win" for p in g)
         return {"n": len(g), "w": w, "l": len(g) - w, "pct": round(w / len(g), 3) if g else None}
     nflp = [p for p in picks.values() if p["sport"] == "nfl"]
-    top = []  # Overlay's 10 best-rated NFL props each week
-    for w in {p["week"] for p in nflp}:
-        top += sorted([p for p in nflp if p["week"] == w], key=lambda p: -p["chance"])[:10]
+    top = []  # Overlay's NFL picks: the 3 best-rated props in each game
+    for gid in {p["game"] for p in nflp}:
+        top += sorted([p for p in nflp if p["game"] == gid], key=lambda p: -p["chance"])[:NFL_PICKS_PER_GAME]
     buckets = []
     for lo, hi, label in ((.542, .56, "54–56%"), (.56, .58, "56–58%"), (.58, 1.01, "58%+")):
         sel = [p for p in nflp if lo <= p["chance"] < hi]; s = summary(sel)
@@ -326,6 +327,17 @@ def run(a):
                               "pH": round(pH, 3) if pH is not None else None, "odds": g.get("odds"), "leans": nba_leans(g, nba) if g.get("state") == "pre" else [],
                               "model": {k: round(v, 1) for k, v in m.items()} if m else None, "scoreH": g.get("scoreH"), "scoreA": g.get("scoreA"), "detail": g.get("detail")})
     nba_top = nba_rank(nba)[:12]
+    # Overlay's NFL picks for this week, game by game (the same picks the track record grades)
+    pinfo = {norm(p["name"]): p for p in nfl.get("players", [])}
+    nfl_picks = []
+    for g in sorted(nfl.get("games", []), key=lambda g: iso(nfl_kickoff(g))):
+        sel = sorted([p for p in picks.values() if p["sport"] == "nfl" and p["game"] == g["id"]], key=lambda p: -p["chance"])[:NFL_PICKS_PER_GAME]
+        have = {(norm(p["name"]), p["stat"]) for p in sel}
+        close = sorted([r for r in nfl_rows if r["game"] == g["id"] and r.get("chance") and (norm(r["name"]), r["stat"]) not in have
+                        and r.get("status") not in ("Out", "Doubtful") and nfl_kickoff(g) > t_now], key=lambda r: -r["chance"])[:max(0, NFL_PICKS_PER_GAME - len(sel))]
+        nfl_picks.append({"game": g["id"], "away": g["away"], "home": g["home"], "kickoff": iso(nfl_kickoff(g)),
+                          "picks": [{**p, "pos": pinfo.get(norm(p["name"]), {}).get("pos", ""), "img": pinfo.get(norm(p["name"]), {}).get("img", "")} for p in sel],
+                          "close": [{x: r[x] for x in ("name", "pos", "team", "opp", "stat", "line", "side", "chance", "img")} for r in close]})
 
     # recent results so saved bets can be graded in the browser
     res = {"nfl": {}, "nflGames": {}, "nba": {}, "nbaGames": {}}
@@ -370,7 +382,7 @@ def run(a):
             pa, ph = imp(g["mlA"]), imp(g["mlH"]); pH = ph / (pa + ph)
         nfl_games_out.append({"id": g["id"], "away": g["away"], "home": g["home"], "kickoff": iso(nfl_kickoff(g)), "spread": g.get("spread"), "total": g.get("total"), "pH": round(pH, 3) if pH else None})
     imgs = {p["id"]: p.get("img", "") for p in nba.get("players", [])}
-    today = {"generated": iso(t_now), "nflWeek": nfl.get("week"), "nflLinesAt": fetched, "nflTop": nfl_top, "nflGames": nfl_games_out,
+    today = {"generated": iso(t_now), "nflWeek": nfl.get("week"), "nflLinesAt": fetched, "nflTop": nfl_top, "nflPicks": nfl_picks, "nflGames": nfl_games_out,
              "nbaGames": nba_day_games, "nbaTop": nba_top, "nbaPicks": sorted([{**p, "img": imgs.get(p["id"], "")} for p in picks.values() if p.get("type") == "prop" and (p.get("result") is None or p.get("day") == t_now.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d"))], key=lambda p: p["kickoff"])[:24], "nbaInjuries": nba_inj_now[:10], "injuryNews": {"nfl": nfl_inj, "nba": nba_inj},
              "track": track, "results": res, "credits": (nfl.get("odds") or {}).get("remaining")}
     json.dump(today, open(a.out, "w"), separators=(",", ":"))
