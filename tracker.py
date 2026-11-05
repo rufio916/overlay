@@ -333,8 +333,15 @@ def run(a):
     for g in sorted(nfl.get("games", []), key=lambda g: iso(nfl_kickoff(g))):
         sel = sorted([p for p in picks.values() if p["sport"] == "nfl" and p["game"] == g["id"]], key=lambda p: -p["chance"])[:NFL_PICKS_PER_GAME]
         have = {(norm(p["name"]), p["stat"]) for p in sel}
-        close = sorted([r for r in nfl_rows if r["game"] == g["id"] and r.get("chance") and (norm(r["name"]), r["stat"]) not in have
-                        and r.get("status") not in ("Out", "Doubtful") and nfl_kickoff(g) > t_now], key=lambda r: -r["chance"])[:max(0, NFL_PICKS_PER_GAME - len(sel))]
+        cand = sorted([r for r in nfl_rows if r["game"] == g["id"] and r.get("chance") and (norm(r["name"]), r["stat"]) not in have
+                       and r.get("status") not in ("Out", "Doubtful") and nfl_kickoff(g) > t_now], key=lambda r: -r["chance"])
+        close = cand[:max(0, NFL_PICKS_PER_GAME - len(sel))]
+        # PrizePicks needs players from at least two teams, so make sure both teams show up
+        for team in (g["away"], g["home"]):
+            if not any(x["team"] == team for x in sel + close):
+                extra = next((r for r in cand if r["team"] == team), None)
+                if extra:
+                    close.append(extra)
         nfl_picks.append({"game": g["id"], "away": g["away"], "home": g["home"], "kickoff": iso(nfl_kickoff(g)),
                           "picks": [{**p, "pos": pinfo.get(norm(p["name"]), {}).get("pos", ""), "img": pinfo.get(norm(p["name"]), {}).get("img", "")} for p in sel],
                           "close": [{x: r[x] for x in ("name", "pos", "team", "opp", "stat", "line", "side", "chance", "img")} for r in close]})
