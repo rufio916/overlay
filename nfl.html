@@ -1068,4 +1068,4 @@ function sharedBanner(n,load){const m=document.querySelector("main");m.insertAdj
     if(pi>=0){setTab("match");openPlayer(pi,D.players[pi].props.findIndex(x=>x.stat===st));}}
   if(q.toString())history.replaceState(null,"",location.pathname);})();
 </script>
-<script>if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});</script>
+<script>if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).catch(()=>{});</script>

@@ -660,4 +660,4 @@ function sharedBanner(n,load){const m=document.querySelector("main");m.insertAdj
     if(pi!==undefined){const ki=D.players[pi].props.findIndex(x=>x.stat===st);if(ki>=0){setTab("props");openPlayer(pi,ki);}}}
   if(q.toString())history.replaceState(null,"",location.pathname);})();
 </script>
-<script>if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});</script>
+<script>if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).catch(()=>{});</script>
