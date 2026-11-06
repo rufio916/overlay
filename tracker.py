@@ -237,10 +237,22 @@ def run(a):
         sch = load_csv(f"{SDV}/espn_nba_schedules/nba_schedule_2027.csv", a.local, "nba_schedule_2027.csv")
         done = sch[sch.status_type_completed == True]
         final_nba = {str(r.game_id): r for r in done.itertuples()}
+        # ESPN's own finals and box scores (in nba.json) grade picks the same night
+        from types import SimpleNamespace as NS
+        for gid, (aw_, hm_, sa_, sh_) in (nba.get("finals") or {}).items():
+            final_nba.setdefault(str(gid), NS(home_score=sh_, away_score=sa_))
+        ebox = {str(g): {norm(n): v for n, v in d.items()} for g, d in (nba.get("box") or {}).items()}
         pbx = None
         for k, pk in picks.items():
             if pk["sport"] != "nba" or pk.get("result") is not None or str(pk["game"]) not in final_nba: continue
             if pk.get("type") == "prop":
+                eb = ebox.get(str(pk["game"]))
+                if eb is not None:
+                    e = eb.get(norm(pk["name"]), "missing")
+                    if e != "missing":
+                        if e is None or not e.get("min"): pk["result"] = "void"; continue
+                        v = float(e[pk["stat"]]); pk["actual"] = v
+                        pk["result"] = "push" if v == pk["line"] else ("win" if (v > pk["line"]) == (pk["side"] == "More") else "loss"); continue
                 if pbx is None:
                     pbx = load_csv(f"{SDV}/espn_nba_player_boxscores/player_box_2027.csv", a.local, "player_box_2027.csv")
                     pbx["pra"] = pbx.points.fillna(0) + pbx.rebounds.fillna(0) + pbx.assists.fillna(0); pbx["k"] = pbx.athlete_display_name.map(norm)
@@ -303,7 +315,7 @@ def run(a):
     nbap = [p for p in picks.values() if p["sport"] == "nba" and p.get("type") != "prop"]
     nbaprops = [p for p in picks.values() if p.get("type") == "prop"]
     graded = sorted([p for p in picks.values() if p.get("result") in ("win", "loss", "push")], key=lambda p: p["kickoff"], reverse=True)
-    recent = {"nflProps": [p for p in graded if p["sport"] == "nfl"][:15], "nbaProps": [p for p in graded if p.get("type") == "prop"][:15],
+    recent = {"nflProps": [p for p in graded if p["sport"] == "nfl"][:15], "nbaProps": [p for p in graded if p.get("type") == "prop"][:24],
               "nbaTeams": [p for p in graded if p["sport"] == "nba" and p.get("type") != "prop"][:15]}
     track = {"nfl": {**summary(nflp), "buckets": buckets, "pending": sum(p.get("result") is None for p in nflp),
                      "byWeek": {str(w): summary([p for p in nflp if p["week"] == w]) for w in sorted({p["week"] for p in nflp})},

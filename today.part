@@ -202,7 +202,11 @@ document.addEventListener("click",e=>{const d=e.target.closest("[data-delbet]");
   const lists=[["NFL props",R.nflProps,x=>`${esc(x.name)} ${x.side} ${x.line} ${esc(x.stat)} <span>(${pct(x.chance)})</span> → <b>${x.actual??"–"}</b>`],
     ["NBA props",R.nbaProps,x=>`${esc(x.name)} ${x.side} ${x.line} ${esc(x.stat)} <span>(${pct(x.chance)})</span> → <b>${x.actual??"–"}</b>`],
     ["NBA team leans",R.nbaTeams,x=>`${x.away} @ ${x.home}: ${x.type==="spread"?`${x.team} ${x.line>0?"+":""}${x.line}`:`${x.side} ${x.line}`} → ${esc(x.final||"")}`]];
-  for(const [t,L,f] of lists)if(L&&L.length)h+=`<details class="recent"><summary>Recent ${t} ›</summary>${L.map(x=>`<div class="legline">${mark(x)} ${f(x)}</div>`).join("")}</details>`;
+  const dayOf=x=>x.day||(x.week?`Week ${x.week}`:dayPT(x.kickoff));
+  const dlabel=d=>/^\d{4}-/.test(d)?new Date(d+"T12:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}):d;
+  for(const [t,L,f] of lists){if(!L||!L.length)continue;const groups=[];L.forEach(x=>{const d=dayOf(x);let g=groups.find(y=>y.d===d);if(!g)groups.push(g={d,xs:[]});g.xs.push(x);});
+    h+=`<details class="recent"${t==="NBA props"?" open":""}><summary>Recent ${t} ›</summary>${groups.map(g=>{const w=g.xs.filter(x=>x.result==="win").length,l=g.xs.filter(x=>x.result==="loss").length;
+      return `<div class="dayhead" style="margin-top:8px;display:flex;justify-content:space-between"><span>${dlabel(g.d)}</span><span style="color:${w>l?"var(--pos)":w<l?"var(--neg)":"var(--muted)"}">${w}-${l}</span></div>${g.xs.map(x=>`<div class="legline">${mark(x)} ${f(x)}</div>`).join("")}`;}).join("")}</details>`;}
   $("#record").innerHTML=h;})();
 if(location.hash){const el=document.getElementById(location.hash.slice(1));if(el)el.scrollIntoView();}
 </script>

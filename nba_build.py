@@ -209,6 +209,32 @@ def build(local=None, espn_dir=None):
             try: book_props[str(g["id"])] = fetch_props(g["id"], espn_dir); props_at = datetime.now(timezone.utc).isoformat(timespec="minutes")
             except Exception as e: print("props skipped for", g["id"], e)
 
+    # ---- last night's finals + box scores straight from ESPN, so picks grade the same night (sportsdataverse lags a day) ----
+    finals, box = {}, {}
+    if not local or espn_dir:
+        evs = []
+        for i, fname in ((-1, "nba_scoreboard_yesterday.json"), (0, "nba_scoreboard_today.json")):
+            try: evs += get_json(f"{ESPN}/scoreboard?dates={today + timedelta(days=i):%Y%m%d}", espn_dir, fname).get("events", [])
+            except Exception as e: print("scoreboard skipped", e)
+        for ev in evs:
+            c = ev["competitions"][0]
+            if c["status"]["type"].get("state") != "post": continue
+            tm = {x["homeAway"]: x for x in c["competitors"]}
+            finals[ev["id"]] = [tm["away"]["team"]["abbreviation"], tm["home"]["team"]["abbreviation"], int(tm["away"]["score"]), int(tm["home"]["score"])]
+            try:
+                sm = get_json(f"{ESPN}/summary?event={ev['id']}", espn_dir, f"nba_summary_{ev['id']}.json")
+                for team in (sm.get("boxscore") or {}).get("players", []):
+                    for grp in team.get("statistics", []):
+                        lab = grp.get("labels") or grp.get("names") or []
+                        for ath in grp.get("athletes", []):
+                            nm = (ath.get("athlete") or {}).get("displayName"); st = ath.get("stats") or []
+                            if not nm: continue
+                            if ath.get("didNotPlay") or not st: box.setdefault(ev["id"], {})[nm] = None; continue
+                            v = dict(zip(lab, st)); num = lambda k: float(str(v.get(k, "0")).split("-")[0] or 0)
+                            pts, reb, ast = num("PTS"), num("REB"), num("AST")
+                            box.setdefault(ev["id"], {})[nm] = {"Points": pts, "Rebounds": reb, "Assists": ast, "3-Pointers": num("3PT"), "Pts+Reb+Ast": pts + reb + ast, "min": num("MIN")}
+            except Exception as e: print("box skipped for", ev["id"], e)
+
     # ---- injuries (ESPN) ----
     inj = get_json(f"{ESPN}/injuries", espn_dir, "nba_injuries.json")
     recent = pb[pb.game_date >= pb.game_date.max()] if len(pb) else pb
@@ -273,7 +299,7 @@ def build(local=None, espn_dir=None):
     return {"generated": datetime.now(timezone.utc).isoformat(timespec="minutes"), "season": "2026-27",
             "statsThrough": pb.game_date.max() if len(pb) else None, "slateDays": sorted({g["day"] for g in slate}),
             "games": slate, "teams": teams, "league": league, "dvp": dvp, "dvpLeague": dvp_league,
-            "injuries": injuries, "players": players, "propsAt": props_at, "propsBook": "DraftKings"}
+            "injuries": injuries, "players": players, "finals": finals, "box": box, "propsAt": props_at, "propsBook": "DraftKings"}
 
 
 if __name__ == "__main__":
