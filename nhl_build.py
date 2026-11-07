@@ -52,7 +52,7 @@ def box_from_summary(sm):
                     rec = {"Saves": num(v.get("SV")), "SA": num(v.get("SA")), "GA": num(v.get("GA")), "toi": round(toi(v.get("TOI")), 1)}
                 else:
                     g, a_ = num(v.get("G")), num(v.get("A"))
-                    rec = {"Goals": g, "Assists": a_, "Points": g + a_, "Shots on Goal": num(v.get("SOG")), "Blocked Shots": num(v.get("BS")),
+                    rec = {"Goals": g, "Assists": a_, "Points": g + a_, "Shots on Goal": num(v.get("S")), "Blocked Shots": num(v.get("BS")),
                            "toi": round(toi(v.get("TOI")), 1), "pptoi": round(toi(v.get("PPTOI")), 1)}
                 out[ath["id"]] = {"name": ath.get("displayName"), "team": abbr, "pos": pos, "img": (ath.get("headshot") or {}).get("href", ""), "s": rec}
     return out
