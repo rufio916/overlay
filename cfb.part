@@ -7,6 +7,20 @@
 .lastg span{font-family:var(--mono);font-size:11px;padding:2px 6px;border-radius:4px;background:var(--raised)}
 .lastg span.W{color:var(--pos)} .lastg span.L{color:var(--neg)}
 table.rt td,table.rt th{white-space:nowrap}
+.statrow2{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid var(--line);padding:8px 0}
+.statrow2:first-child{border-top:0}
+.statrow2 .sname{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-width:0}
+.statrow2 .sname:hover b{text-decoration:underline}
+.statrow2 .sname:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.statrow2 .pv{font-family:var(--mono);color:var(--fg)}
+.lin{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none}
+.lin input{width:76px;font:inherit;font-family:var(--mono);padding:6px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);text-align:right}
+.lin .res{display:flex;gap:4px;align-items:center;min-height:0}
+.lin .res:empty{display:none}
+#mine{margin:0 0 14px}
+.mrow{all:unset;box-sizing:border-box;cursor:pointer;display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.mrow:hover b{text-decoration:underline}
+.linkbtn{all:unset;cursor:pointer;color:var(--accent);font-size:12px;text-transform:none;letter-spacing:0}
 .statrow{display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;text-align:left;background:none;border:0;border-top:1px solid var(--line);font:inherit;color:inherit;cursor:pointer;padding:9px 0}
 .statrow:first-child{border-top:0}
 .statrow .r{display:flex;gap:8px;align-items:center;flex-shrink:0}
@@ -38,7 +52,8 @@ table.rt td,table.rt th{white-space:nowrap}
   </section>
   <section id="props" hidden>
     <h2>Player props</h2>
-    <div class="banner"><b>No sportsbook lines for college players here,</b> because none are free. Open a player, type the PrizePicks line, and Overlay checks it against his games this season and this defense.</div>
+    <div class="banner"><b>Type the PrizePicks line in the box next to any stat</b> and Overlay shows which side it likes and its chance to hit. 54% or better (green) is what a 6-pick Flex needs. Every line you enter collects in a "Your lines" list, best first. <span class="sub">Proj is Overlay's projection; the +/− is how it compares with his season average after adjusting for this defense.</span></div>
+    <div class="panel" id="mine" hidden></div>
     <div class="cfbf"><select id="pgame" aria-label="Game"><option value="">All Top 25 games</option></select><select id="ppos" aria-label="Position"><option value="">All positions</option><option>QB</option><option>RB</option><option>WR/TE</option></select></div>
     <div id="plist"></div>
     <p class="sub">Players on teams in this week's Top 25 games that haven't kicked off yet. Projections weight recent games more and adjust for how much the opponent allows, shrunk halfway toward average since college schedules vary so much.</p>
@@ -126,10 +141,27 @@ function chance(pr,line,side){let pm;if(["Pass TDs","Receptions","Completions"].
 [...new Set(P.map(p=>p.game))].forEach(id=>{const g=GAME[id];if(g)$("#pgame").insertAdjacentHTML("beforeend",`<option value="${id}">${esc(g.away.abbr)} @ ${esc(g.home.abbr)}</option>`);});
 $("#pgame").onchange=$("#ppos").onchange=renderProps;
 const defTxt=pr=>pr.oppRank&&pr.of?`defense #${pr.of-pr.oppRank+1} of ${pr.of}`:"";
+// lines you type are saved on this device, keyed player|stat
+let LINES={};try{LINES=JSON.parse(localStorage.getItem("overlay-cfb-lines")||"{}");}catch(e){}
+const saveLines=()=>{try{localStorage.setItem("overlay-cfb-lines",JSON.stringify(LINES));}catch(e){}};
+function bestSide(pr,line){const m=chance(pr,line,"More");return m>=.5?{side:"More",ch:m}:{side:"Less",ch:1-m};}
+const chip=b=>`<span class="pick ${b.side==="More"?"more":"less"}">${b.side}</span><span class="edge ${b.ch>=BE?"hot":"cold"}">${Math.round(b.ch*100)}%</span>`;
+function statRow(p,i,pr,k){const key=p.id+"|"+pr.stat,ln=LINES[key];const d=pr.proj-pr.avg;
+  return `<div class="statrow2"><button class="sname" data-pi="${i}" data-ki="${k}"><b>${esc(pr.stat)}</b><span class="sub">proj <b class="pv">${pr.proj}</b> <span class="delta ${d>.5?"up":d<-.5?"dn":""}" title="Projection vs his season average">${d>=0?"+":""}${d.toFixed(1)}</span> · avg ${pr.avg} · ${defTxt(pr)}</span></button>
+    <span class="lin"><input type="number" inputmode="decimal" step="0.5" min="0" placeholder="Line" aria-label="PrizePicks line for ${esc(p.name)} ${esc(pr.stat)}" data-key="${esc(key)}" data-pi="${i}" data-ki="${k}" value="${ln??""}"><span class="res" id="r-${i}-${k}">${ln!=null?chip(bestSide(pr,ln)):""}</span></span></div>`;}
+function renderMine(){const rows=[];P.forEach((p,i)=>p.props.forEach((pr,k)=>{const ln=LINES[p.id+"|"+pr.stat];if(ln!=null)rows.push({p,i,pr,k,ln,b:bestSide(pr,ln)});}));
+  const el=$("#mine");if(!rows.length){el.hidden=true;return;}rows.sort((a,b)=>b.b.ch-a.b.ch);el.hidden=false;
+  el.innerHTML=`<div class="dayhead" style="display:flex;justify-content:space-between"><span>Your lines, best first</span><button class="linkbtn" id="clearlines">Clear all</button></div>`+rows.map(r=>`<button class="mrow" data-pi="${r.i}" data-ki="${r.k}"><span><b>${esc(r.p.name)}</b> <span class="sub">${esc(r.p.team)} · ${r.b.side} ${r.ln} ${esc(r.pr.stat)}</span></span><span class="edge ${r.b.ch>=BE?"hot":"cold"}">${Math.round(r.b.ch*100)}%</span></button>`).join("")
+    +`<p class="sub" style="margin:6px 0 0">Green = at or above the 54% a 6-pick Flex needs. Rough estimates from his games and this defense; college depth charts change fast, so check he's starting.</p>`;
+  $("#clearlines").onclick=()=>{LINES={};saveLines();renderProps();};}
 function renderProps(){const gf=$("#pgame").value,pf=$("#ppos").value;const L=P.map((p,i)=>[p,i]).filter(([p])=>(!gf||p.game===gf)&&(!pf||p.pos===pf));
   $("#plist").innerHTML=L.length?`<div class="cards" style="display:flex;flex-direction:column;gap:10px">${L.map(([p,i])=>`<div class="panel" style="padding:12px 14px"><div class="who">${hs(p)}<div><div class="pname">${esc(p.name)}</div><div class="sub">${p.pos} · ${esc(p.team)} ${p.home===false?"@":"vs"} ${p.oppRank?`<span class="trank">${p.oppRank}</span>`:""}${esc(p.opp)} · ${when(p.start)}</div></div></div>
-    <div style="margin-top:8px">${p.props.map((pr,k)=>{const d=pr.proj-pr.avg;return `<button class="statrow" data-pi="${i}" data-ki="${k}"><span style="text-align:left"><b>${esc(pr.stat)}</b><div class="sub">season avg ${pr.avg} · ${defTxt(pr)}</div></span><span class="r"><span class="big2">${pr.proj}</span><span class="delta ${d>.5?"up":d<-.5?"dn":""}">${d>=0?"+":""}${d.toFixed(1)}</span><span class="sub" aria-hidden="true">›</span></span></button>`;}).join("")}</div></div>`).join("")}</div>`
-    :'<div class="panel"><p class="sub">No players for upcoming Top 25 games right now. They show up once the next week\'s games are on the board.</p></div>';}
+    <div style="margin-top:6px">${p.props.map((pr,k)=>statRow(p,i,pr,k)).join("")}</div></div>`).join("")}</div>`
+    :'<div class="panel"><p class="sub">No players for upcoming Top 25 games right now. They show up once the next week\'s games are on the board.</p></div>';
+  renderMine();}
+document.addEventListener("input",e=>{const inp=e.target.closest("input[data-key]");if(!inp)return;const v=parseFloat(inp.value);const p=P[+inp.dataset.pi],pr=p.props[+inp.dataset.ki];
+  if(isNaN(v))delete LINES[inp.dataset.key];else LINES[inp.dataset.key]=v;saveLines();
+  $(`#r-${inp.dataset.pi}-${inp.dataset.ki}`).innerHTML=isNaN(v)?"":chip(bestSide(pr,v));clearTimeout(renderMine.t);renderMine.t=setTimeout(renderMine,400);});
 let cur=null;
 function bars(L,line){const W=460,H=150,pad={l:36,r:8,t:14,b:36};const n=Math.max(L.length,1);const max=Math.max(...L.map(v=>v.v),line||0,1)*1.18;
   const y=v=>pad.t+(H-pad.t-pad.b)*(1-v/max);const bw=(W-pad.l-pad.r)/n;
@@ -137,7 +169,7 @@ function bars(L,line){const W=460,H=150,pad={l:36,r:8,t:14,b:36};const n=Math.ma
   <line x1="${pad.l}" x2="${W-pad.r}" y1="${y(line)}" y2="${y(line)}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4"/></svg><div class="sub"><span style="color:var(--accent)">- - -</span> Your line ${line}</div>`;}
 function hitsHtml(pr){const hit=v=>cur.side==="More"?v.v>cur.line:v.v<cur.line;const l5=pr.log.slice(-5);const est=chance(pr,cur.line,cur.side);
   return `<div><span>Last 5</span><b>${l5.filter(hit).length}/${l5.length}</b></div><div><span>Season</span><b>${pr.log.filter(hit).length}/${pr.log.length}</b></div><div><span>Est. chance</span><b style="color:${est>=BE?"var(--pos)":"var(--fg)"}">${Math.round(est*100)}%</b></div>`;}
-function openPlayer(pi,ki){const pr=P[pi].props[ki];cur={pi,ki,side:"More",line:Math.max(.5,Math.round(pr.proj)-.5)};drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;}
+function openPlayer(pi,ki){const pr=P[pi].props[ki];const ln=LINES[P[pi].id+"|"+pr.stat];cur={pi,ki,side:ln!=null?bestSide(pr,ln).side:"More",line:ln??Math.max(.5,Math.round(pr.proj)-.5)};drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;}
 function drawSheet(){const p=P[cur.pi],pr=p.props[cur.ki];const def=pr.oppRank&&pr.of?pr.of-pr.oppRank+1:null;
   const kind=def==null?"mid":def>pr.of*.66?"good":def<pr.of*.33?"bad":"mid";
   const verdict=def==null?"":`<div class="verdict ${kind}"><strong>${kind==="good"?"Soft":kind==="bad"?"Tough":"Average"} matchup</strong>${esc(p.opp)} ranks #${def} of ${pr.of} at stopping ${esc(pr.stat.toLowerCase())} (1 = allows the fewest). Overlay's projection: <b>${pr.proj}</b> vs his recent-weighted ${pr.base} and season average ${pr.avg}.</div>`;
@@ -148,11 +180,11 @@ function drawSheet(){const p=P[cur.pi],pr=p.props[cur.ki];const def=pr.oppRank&&
       <div class="hits" id="hitsbox">${hitsHtml(pr)}</div><p class="sub" style="margin:6px 0 0">Needs about 54% for a 6-pick Flex. This is a rough estimate from his games and this defense, with no injury or depth-chart news, so check that he's starting.</p></div>
     ${verdict}<div class="sec">${esc(pr.stat)} by game</div><div id="logchart">${bars(pr.log,cur.line)}</div>`;
   $("#closebtn").onclick=closeSheet;
-  $("#lineinput").oninput=e=>{const v=parseFloat(e.target.value);if(!isNaN(v)){cur.line=v;$("#hitsbox").innerHTML=hitsHtml(pr);$("#logchart").innerHTML=bars(pr.log,cur.line);}};
+  $("#lineinput").oninput=e=>{const v=parseFloat(e.target.value);if(!isNaN(v)){cur.line=v;LINES[p.id+"|"+pr.stat]=v;saveLines();$("#hitsbox").innerHTML=hitsHtml(pr);$("#logchart").innerHTML=bars(pr.log,cur.line);}};
   document.querySelectorAll("#sheet .seg button").forEach(b=>b.onclick=()=>{cur.side=b.dataset.side;document.querySelectorAll("#sheet .seg button").forEach(x=>x.setAttribute("aria-pressed",x===b));$("#hitsbox").innerHTML=hitsHtml(pr);});}
-function closeSheet(){$("#sheet").hidden=true;$("#scrim").hidden=true;cur=null;}
+function closeSheet(){const was=cur;$("#sheet").hidden=true;$("#scrim").hidden=true;cur=null;if(was)renderProps();}
 $("#scrim").onclick=closeSheet;document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet();});
-document.addEventListener("click",e=>{const b=e.target.closest("[data-pi]");if(b){openPlayer(+b.dataset.pi,+b.dataset.ki);}});
+document.addEventListener("click",e=>{const b=e.target.closest("button[data-pi]");if(b){openPlayer(+b.dataset.pi,+b.dataset.ki);}});
 renderProps();
 const TABS=["games","props","ratings"];
 function setTab(t){if(!TABS.includes(t))t="games";state.tab=t;save();document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));TABS.forEach(id=>$("#"+id).hidden=id!==t);}
