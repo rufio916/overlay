@@ -6,35 +6,13 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -q pandas numpy
       - run: |
-          mkdir raw && cd raw
-          python3 - <<'PY'
-          import json, urllib.request, collections
-          def get(u):
-              return json.loads(urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"}), timeout=30).read())
-          for sport, lg, extra in (("hockey", "nhl", ""), ("basketball", "mens-college-basketball", "&groups=50&limit=400")):
-              sb = get(f"https://site.api.espn.com/apis/site/v2/sports/{sport}/{lg}/scoreboard?{extra}")
-              json.dump(sb, open(f"{lg}_sb.json", "w"))
-              ev = sb["events"]; print(lg, "events", len(ev), "with odds", sum(1 for e in ev if e["competitions"][0].get("odds")))
-              pre = [e for e in ev if e["competitions"][0]["status"]["type"]["state"] == "pre"][:3]
-              for e in pre:
-                  gid = e["id"]
-                  try:
-                      d = get(f"https://sports.core.api.espn.com/v2/sports/{sport}/leagues/{lg}/events/{gid}/competitions/{gid}/odds/100/propBets?lang=en&region=us&limit=1000")
-                      print("  ", e["name"], "props", d.get("count"), collections.Counter(i["type"]["name"] for i in d.get("items", [])).most_common(12))
-                  except Exception as x: print("  ", e["name"], "props err", str(x)[:50])
-              post = [e for e in ev if e["competitions"][0]["status"]["type"]["state"] == "post"][:1]
-              if not post:
-                  y = get(f"https://site.api.espn.com/apis/site/v2/sports/{sport}/{lg}/scoreboard?dates=20261106{extra}")
-                  post = [e for e in y["events"] if e["competitions"][0]["status"]["type"]["state"] == "post"][:1]
-              for e in post:
-                  sm = get(f"https://site.api.espn.com/apis/site/v2/sports/{sport}/{lg}/summary?event={e['id']}")
-                  json.dump(sm, open(f"{lg}_summary.json", "w"))
-                  for t in sm.get("boxscore", {}).get("players", [])[:1]:
-                      for g in t["statistics"]: print("   box", g.get("name"), g.get("labels"), [a["athlete"]["displayName"] + str(a["stats"]) for a in g["athletes"][:1]])
-          for u in ["https://api-web.nhle.com/v1/schedule/now", "https://api-web.nhle.com/v1/club-stats/TOR/now"]:
-              try: d = get(u); print("nhl api ok", u, list(d)[:6])
-              except Exception as x: print("nhl api err", u, str(x)[:60])
-          PY
-          git init -q && git checkout -q -b rawdata && git add -A && git -c user.name=bot -c user.email=bot@x commit -qm raw
+          mkdir -p out
+          python nhl_build.py --out out/nhl.json
+          python cbb_build.py --out out/cbb.json
+          cd out && git init -q && git checkout -q -b rawdata && git add -A && git -c user.name=bot -c user.email=bot@x commit -qm raw
           git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" rawdata
