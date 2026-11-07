@@ -182,7 +182,7 @@ ul.why li{line-height:1.45}
 <header class="top">
   <div class="topin">
     <div class="brand">Over<span>lay</span></div>
-    <nav class="sport" aria-label="Sport"><a href="./">Today</a><a href="nfl.html" aria-current="page">NFL</a><a href="nba.html">NBA</a></nav>
+    <nav class="sport" aria-label="Sport"><a href="./">Today</a><a href="nfl.html" aria-current="page">NFL</a><a href="nba.html">NBA</a><a href="cfb.html">CFB</a></nav>
     <div class="week" id="weeklabel"></div>
     <div class="sample" id="freshness"></div>
   </div>

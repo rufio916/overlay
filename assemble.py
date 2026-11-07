@@ -5,7 +5,8 @@ here = os.path.dirname(os.path.abspath(__file__))
 rd = lambda f: open(os.path.join(here, f)).read()
 PAGES = {"today": ("today.part", "today.json", "index.html", "Overlay"),
          "nfl": ("body.part", "data.json", "nfl.html", "Overlay NFL"),
-         "nba": ("nba.part", "nba.json", "nba.html", "Overlay NBA")}
+         "nba": ("nba.part", "nba.json", "nba.html", "Overlay NBA"),
+         "cfb": ("cfb.part", "cfb.json", "cfb.html", "Overlay CFB")}
 HEAD = ('<!doctype html>\n<html lang="en">\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'
         '<meta name="theme-color" content="#0e141b">\n<link rel="manifest" href="manifest.webmanifest">\n'

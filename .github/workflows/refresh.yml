@@ -47,13 +47,18 @@ jobs:
           cp nba.json nba_prev.json 2>/dev/null || true
           if python nba_build.py --out nba.json; then python assemble.py nba; else echo "NBA build failed; keeping the last NBA page"; cp nba_prev.json nba.json 2>/dev/null || true; fi
           rm -f nba_prev.json
+      - name: "College football (free: ESPN scores, rankings, DraftKings lines)"
+        run: |
+          cp cfb.json cfb_prev.json 2>/dev/null || true
+          if python cfb_build.py --out cfb.json; then python assemble.py cfb; else echo "CFB build failed; keeping the last page"; cp cfb_prev.json cfb.json 2>/dev/null || true; fi
+          rm -f cfb_prev.json
       - name: "Today page + track record (free: grades logged picks from box scores)"
         run: |
-          if python tracker.py --nfl data.json --nba nba.json --history history.json --out today.json; then python assemble.py today; else echo "Tracker failed; keeping the last Today page"; fi
+          if python tracker.py --nfl data.json --nba nba.json --cfb cfb.json --history history.json --out today.json; then python assemble.py today; else echo "Tracker failed; keeping the last Today page"; fi
       - run: |
           git config user.name "overlay-bot"
           git config user.email "overlay-bot@users.noreply.github.com"
-          git add data.json nfl.html nba.json nba.html history.json today.json index.html
+          git add data.json nfl.html nba.json nba.html cfb.json cfb.html history.json today.json index.html
           git diff --cached --quiet || git commit -m "Refresh data"
           git pull --rebase -q || true
           git push

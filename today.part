@@ -51,7 +51,7 @@ html{scroll-behavior:smooth}
 <header class="top">
   <div class="topin">
     <div class="brand">Over<span>lay</span></div>
-    <nav class="sport" aria-label="Sport"><a href="./" aria-current="page">Today</a><a href="nfl.html">NFL</a><a href="nba.html">NBA</a></nav>
+    <nav class="sport" aria-label="Sport"><a href="./" aria-current="page">Today</a><a href="nfl.html">NFL</a><a href="nba.html">NBA</a><a href="cfb.html">CFB</a></nav>
     <div class="week" id="weeklabel"></div>
   </div>
 </header>
@@ -64,6 +64,7 @@ html{scroll-behavior:smooth}
     <div class="tsec">
       <div class="panel" id="nflpicks"></div>
       <div class="panel" id="nbapicks"></div>
+      <div class="panel" id="cfbgames"></div>
       <div class="panel" id="nbagames"></div>
     </div>
     <div class="tsec">
@@ -88,6 +89,7 @@ const pct=x=>x==null?"–":Math.round(x*100)+"%";
 function toast(t){const el=$("#toast");el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,1800);}
 const ESPNNFL={LA:"lar",WAS:"wsh"};
 const logo=(sport,t,s=20)=>t?`<img class="logo" src="https://a.espncdn.com/i/teamlogos/${sport}/500/${sport==="nfl"?(ESPNNFL[t]||t.toLowerCase()):t.toLowerCase()}.png" alt="" width="${s}" height="${s}" loading="lazy" onerror="this.remove()">`:"";
+const logo2=t=>t&&t.logo?`<img class="logo" src="${esc(t.logo)}" alt="" width="20" height="20" loading="lazy" onerror="this.remove()">`:"";
 const hs=p=>p&&p.img?`<img class="hs" src="${esc(p.img)}" alt="" loading="lazy" onerror="this.remove()">`:"";
 const when=iso=>new Date(iso).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit"});
 const ago=iso=>{const m=(Date.now()-new Date(iso))/6e4;return m<60?`${Math.max(1,Math.round(m))} min ago`:m<1440?`${Math.round(m/60)} hr ago`:`${Math.round(m/1440)} d ago`;};
@@ -145,6 +147,19 @@ function pickRow(x,href,meta,second){const done=x.result&&x.result!=="void";
     :'<p class="sub">No picks yet today. They show up once DraftKings posts player lines, usually by the morning refresh.</p>';
   $("#nbapicks").innerHTML=h;})();
 
+// ---------- college football (Top 25 games + any leans) ----------
+(function(){const A=(D.cfbGames||[]);const days=[...new Set(A.map(g=>g.day))].sort();const dd=days.includes(todayPT)?todayPT:days.find(d=>d>todayPT);
+  const el=$("#cfbgames");if(!dd){el.remove();return;}
+  const G=A.filter(g=>g.day===dd&&(g.home.rank||g.away.rank)).sort((a,b)=>a.start.localeCompare(b.start));const leanG=A.filter(g=>g.day===dd&&g.leans&&g.leans.length&&g.state==="pre");
+  const tn=t=>`${t.rank?`<span class="tag">${t.rank}</span> `:""}${esc(t.abbr)}`;
+  let h=`<h3>College football ${dd===todayPT?"today":new Date(dd+"T12:00").toLocaleDateString("en-US",{weekday:"long"})} <span class="sub">Top 25 games · win chance from DraftKings</span></h3>`;
+  h+=G.map(g=>{const o=g.odds||{},fin=g.state==="post",live=g.state==="in";
+    return `<a class="pickrow" href="cfb.html?game=${g.id}"><div class="who"><div><div class="pname">${logo2(g.away)} ${tn(g.away)} ${g.neutral?"vs":"@"} ${logo2(g.home)} ${tn(g.home)}</div><div class="sub">${fin||live?esc(g.detail):new Date(g.start).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}${g.tv?` · ${esc(g.tv)}`:""}${o.spreadH!=null?` · ${o.spreadH<=0?g.home.abbr+" "+(o.spreadH||"PK"):g.away.abbr+" -"+o.spreadH} · O/U ${o.total}`:""}</div>${(g.leans||[]).length&&!fin?`<div style="margin-top:4px">${g.leans.map(l=>`<span class="leanchip">Lean ${l.type==="spread"?`${l.team} ${l.line>0?"+":""}${l.line}`:`${l.side} ${l.line}`}</span>`).join(" ")}</div>`:""}</div></div>
+      <div class="r stack">${fin||live?`<span class="big2">${g.scoreA}-${g.scoreH}</span>`:g.pH!=null?`<span class="big2">${Math.max(g.pH,1-g.pH)>.99?">99%":pct(Math.max(g.pH,1-g.pH))}</span><span class="tag">${g.pH>=.5?g.home.abbr:g.away.abbr}</span>`:""}</div></a>`;}).join("")||'<p class="sub">No ranked teams playing.</p>';
+  const other=leanG.filter(g=>!g.home.rank&&!g.away.rank).length;
+  h+=`<p class="sub" style="margin-top:8px">${other?`Overlay has leans in ${other} unranked game${other>1?"s":""} too. `:""}Leans come from a scores-only rating that tested about 50/50 against the spread, so they're tracked, not trusted. <a href="cfb.html" style="color:var(--accent)">All games ›</a></p>`;
+  el.innerHTML=h;})();
+
 // ---------- injury news ----------
 (function(){const n=D.injuryNews||{nfl:[],nba:[]};const items=[...n.nfl.map(x=>({...x,sp:"nfl"})),...n.nba.map(x=>({...x,sp:"nba"}))].sort((a,b)=>new Date(b.at)-new Date(a.at)).slice(0,10);
   let h='<h3>Injury news <span class="sub">Status changes since earlier refreshes</span></h3>';
@@ -197,10 +212,12 @@ document.addEventListener("click",e=>{const d=e.target.closest("[data-delbet]");
   h+=`<div class="sec">NBA player props · Overlay's picks vs the DraftKings line</div>`+tiles(["Record",rec(np)],["Hit rate",p(np),tone(np,.524)],["Pending",np.pending||0]);
   h+=`<p class="sub">${np.n?`Overlay expected ${pct(np.ours)}; DraftKings' odds implied ${pct(np.mkt)}. Beating the DraftKings number is the real test. `:"Started Nov 4, so there's nothing graded yet. "}${np.byStat&&np.n?Object.entries(np.byStat).filter(([,s])=>s.n).map(([k,s])=>`${k}: ${s.w}-${s.l}`).join(" · "):""}</p>`;
   h+=`<div class="sec">NBA team leans · rough model vs DraftKings</div>`+tiles(["Spreads",rec(nb.spread),tone(nb.spread,.524)],["Totals",rec(nb.total),tone(nb.total,.524)],["Pending",nb.pending||0]);
+  const cf=T.cfb||{};if((cf.spread&&cf.spread.n)||(cf.total&&cf.total.n)||cf.pending)h+=`<div class="sec">College football leans · scores-only model vs DraftKings</div>`+tiles(["Spreads",rec(cf.spread),tone(cf.spread,.524)],["Totals",rec(cf.total),tone(cf.total,.524)],["Pending",cf.pending||0]);
   h+=`<p class="sub">Spreads and totals need 52.4% to profit at -110. Small samples swing a lot, so give any of these a few hundred picks before trusting them. NFL weeks 6–7 were back-filled from the lines the site showed those Saturdays.</p>`;
   const R=T.recent||{};
   const lists=[["NFL props",R.nflProps,x=>`${esc(x.name)} ${x.side} ${x.line} ${esc(x.stat)} <span>(${pct(x.chance)})</span> → <b>${x.actual??"–"}</b>`],
     ["NBA props",R.nbaProps,x=>`${esc(x.name)} ${x.side} ${x.line} ${esc(x.stat)} <span>(${pct(x.chance)})</span> → <b>${x.actual??"–"}</b>`],
+    ["College football leans",R.cfb,x=>`${x.away} @ ${x.home}: ${x.type==="spread"?`${x.team} ${x.line>0?"+":""}${x.line}`:`${x.side} ${x.line}`} → ${esc(x.final||"")}`],
     ["NBA team leans",R.nbaTeams,x=>`${x.away} @ ${x.home}: ${x.type==="spread"?`${x.team} ${x.line>0?"+":""}${x.line}`:`${x.side} ${x.line}`} → ${esc(x.final||"")}`]];
   const dayOf=x=>x.day||(x.week?`Week ${x.week}`:dayPT(x.kickoff));
   const dlabel=d=>/^\d{4}-/.test(d)?new Date(d+"T12:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}):d;

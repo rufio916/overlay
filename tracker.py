@@ -172,7 +172,7 @@ def nba_picks(nba):
 
 
 def run(a):
-    nfl = load_json(a.nfl, {}); nba = load_json(a.nba, {})
+    nfl = load_json(a.nfl, {}); nba = load_json(a.nba, {}); cfb = load_json(a.cfb, {})
     hist = load_json(a.history, {"picks": {}, "injurySnap": {}, "injuryNews": []})
     picks = hist["picks"]; t_now = now()
 
@@ -204,6 +204,16 @@ def run(a):
         for l in nba_leans(g, nba):
             k = f"nba|{g['id']}|{l['type']}"
             picks[k] = {"sport": "nba", "game": g["id"], "away": g["away"], "home": g["home"], **l, "kickoff": g["start"], "logged": iso(t_now), "result": None}
+
+    # college football leans (spread/total), updated until kickoff
+    for g in cfb.get("games", []):
+        if g.get("state") != "pre" or datetime.fromisoformat(g["start"].replace("Z", "+00:00")) <= t_now: continue
+        for l in g.get("leans", []):
+            k = f"cfb|{g['id']}|{l['type']}"
+            picks[k] = {"sport": "cfb", "game": g["id"], "away": g["away"]["abbr"], "home": g["home"]["abbr"], **l, "kickoff": g["start"], "logged": iso(t_now), "result": None}
+    for k in [k for k, p in picks.items() if p["sport"] == "cfb" and p.get("result") is None]:
+        g = next((x for x in cfb.get("games", []) if x["id"] == picks[k]["game"]), None)
+        if g and g.get("state") == "pre" and not any(f"cfb|{g['id']}|{l['type']}" == k for l in g.get("leans", [])): del picks[k]  # lean went away before kickoff
 
     starts = {str(g["id"]): g for g in nba_games}
     for r in nba_picks(nba):
@@ -269,6 +279,13 @@ def run(a):
     except Exception as e:
         print("NBA grading skipped:", e, file=sys.stderr); sch = None
 
+    for k, pk in picks.items():  # college football: ESPN finals in cfb.json
+        f = (cfb.get("finals") or {}).get(str(pk["game"])) if pk["sport"] == "cfb" and pk.get("result") is None else None
+        if not f: continue
+        aw_, hm_, sa_, sh_ = f; pk["final"] = f"{aw_} {sa_} · {hm_} {sh_}"
+        x = ((sh_ - sa_) if pk["side"] == "H" else (sa_ - sh_)) + pk["line"] if pk["type"] == "spread" else (sa_ + sh_ - pk["line"]) * (1 if pk["side"] == "Over" else -1)
+        pk["result"] = "push" if x == 0 else ("win" if x > 0 else "loss")
+
     # ---------- 3. injury news (what changed since the last run) ----------
     snap = hist.get("injurySnap", {}); news = [n for n in hist.get("injuryNews", []) if datetime.fromisoformat(n["at"]) > t_now - timedelta(days=3)]
     cur = {}
@@ -314,9 +331,11 @@ def run(a):
         buckets.append(s)
     nbap = [p for p in picks.values() if p["sport"] == "nba" and p.get("type") != "prop"]
     nbaprops = [p for p in picks.values() if p.get("type") == "prop"]
+    cfbp = [p for p in picks.values() if p["sport"] == "cfb"]
     graded = sorted([p for p in picks.values() if p.get("result") in ("win", "loss", "push")], key=lambda p: p["kickoff"], reverse=True)
     recent = {"nflProps": [p for p in graded if p["sport"] == "nfl"][:15], "nbaProps": [p for p in graded if p.get("type") == "prop"][:24],
-              "nbaTeams": [p for p in graded if p["sport"] == "nba" and p.get("type") != "prop"][:15]}
+              "nbaTeams": [p for p in graded if p["sport"] == "nba" and p.get("type") != "prop"][:15],
+              "cfb": [p for p in graded if p["sport"] == "cfb"][:15]}
     track = {"nfl": {**summary(nflp), "buckets": buckets, "pending": sum(p.get("result") is None for p in nflp),
                      "byWeek": {str(w): summary([p for p in nflp if p["week"] == w]) for w in sorted({p["week"] for p in nflp})},
                      "top": {**summary(top), "pending": sum(p.get("result") is None for p in top),
@@ -325,6 +344,8 @@ def run(a):
                           "ours": round(sum(p["chance"] for p in nbaprops if p.get("result") in ("win", "loss")) / max(1, summary(nbaprops)["n"]), 3),
                           "mkt": round(sum(p["mkt"] for p in nbaprops if p.get("result") in ("win", "loss")) / max(1, summary(nbaprops)["n"]), 3),
                           "byStat": {st_: summary([p for p in nbaprops if p["stat"] == st_]) for st_ in sorted({p["stat"] for p in nbaprops})}},
+             "cfb": {"spread": summary([p for p in cfbp if p["type"] == "spread"]), "total": summary([p for p in cfbp if p["type"] == "total"]),
+                     "pending": sum(p.get("result") is None for p in cfbp)},
              "nba": {"spread": summary([p for p in nbap if p["type"] == "spread"]), "total": summary([p for p in nbap if p["type"] == "total"]),
                      "pending": sum(p.get("result") is None for p in nbap)},
              "recent": recent, "since": min((p["logged"] for p in picks.values()), default=None)}
@@ -402,7 +423,10 @@ def run(a):
         nfl_games_out.append({"id": g["id"], "away": g["away"], "home": g["home"], "kickoff": iso(nfl_kickoff(g)), "spread": g.get("spread"), "total": g.get("total"), "pH": round(pH, 3) if pH else None})
     imgs = {p["id"]: p.get("img", "") for p in nba.get("players", [])}
     today = {"generated": iso(t_now), "nflWeek": nfl.get("week"), "nflLinesAt": fetched, "nflTop": nfl_top, "nflPicks": nfl_picks, "nflGames": nfl_games_out,
-             "nbaGames": nba_day_games, "nbaTop": nba_top, "nbaPicks": sorted([{**p, "img": imgs.get(p["id"], "")} for p in picks.values() if p.get("type") == "prop" and (p.get("result") is None or p.get("day") == t_now.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d"))], key=lambda p: p["kickoff"])[:24], "nbaInjuries": nba_inj_now[:10], "injuryNews": {"nfl": nfl_inj, "nba": nba_inj},
+             "nbaGames": nba_day_games, "nbaTop": nba_top, "cfbWeek": cfb.get("week"), "cfbGames": [{x: g[x] for x in ("id", "start", "day", "state", "detail", "neutral", "tv", "pH", "odds", "leans", "model", "scoreH", "scoreA") if x in g}
+                 | {"home": {k: g["home"][k] for k in ("abbr", "name", "rank", "logo", "rec")}, "away": {k: g["away"][k] for k in ("abbr", "name", "rank", "logo", "rec")}}
+                 for g in cfb.get("games", []) if g["home"].get("rank") or g["away"].get("rank") or g.get("leans")],
+             "nbaPicks": sorted([{**p, "img": imgs.get(p["id"], "")} for p in picks.values() if p.get("type") == "prop" and (p.get("result") is None or p.get("day") == t_now.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d"))], key=lambda p: p["kickoff"])[:24], "nbaInjuries": nba_inj_now[:10], "injuryNews": {"nfl": nfl_inj, "nba": nba_inj},
              "track": track, "results": res, "credits": (nfl.get("odds") or {}).get("remaining")}
     json.dump(today, open(a.out, "w"), separators=(",", ":"))
     print(f"today: {len(nfl_top)} NFL picks, {len(nba_day_games)} NBA games, {len(nba_top)} NBA props; track NFL {track['nfl']['w']}-{track['nfl']['l']} "
@@ -411,6 +435,6 @@ def run(a):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--nfl", default="data.json"); ap.add_argument("--nba", default="nba.json")
+    ap.add_argument("--nfl", default="data.json"); ap.add_argument("--nba", default="nba.json"); ap.add_argument("--cfb", default="cfb.json")
     ap.add_argument("--history", default="history.json"); ap.add_argument("--out", default="today.json"); ap.add_argument("--local")
     run(ap.parse_args())
