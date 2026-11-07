@@ -148,9 +148,6 @@ details.ginj summary::-webkit-details-marker{display:none}
 .pklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
 .upset{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px;background:var(--warn-soft);color:var(--warn)}
 .won{color:var(--pos)} .lost{color:var(--neg)}
-.sport{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-bottom:4px}
-.sport a{font-family:var(--display);font-weight:700;font-size:14px;letter-spacing:.06em;padding:4px 12px;color:var(--muted);text-decoration:none}
-.sport a[aria-current="page"]{background:var(--fg);color:var(--bg)}
 .gm-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
 .cmp{width:100%;min-width:0;border-collapse:collapse;font-variant-numeric:tabular-nums}
 .cmp th,.cmp td{padding:7px 8px;border-bottom:1px solid var(--line);font-size:13px}

@@ -1,0 +1,79 @@
+<style>
+.flt{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 14px}
+.flt select,.flt input{font:inherit;padding:7px 10px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+.trank{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--muted);margin-right:2px}
+</style>
+<header class="top">
+  <div class="topin">
+    <div class="brand">Over<span>lay</span></div>
+    <nav class="sport" aria-label="Sport"></nav>
+    <div class="week" id="weeklabel"></div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="games">Games</button>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section id="games">
+    <h2>College basketball</h2>
+    <p class="lede">Today's and tomorrow's Division I games with DraftKings lines. Tap a game for the details.</p>
+    <div class="banner" id="warm" hidden></div>
+    <div class="flt"><select id="cf" aria-label="Which games"><option value="top">Top 25 games</option><option value="lines">Games with lines</option><option value="all">All games</option></select><input id="q" type="search" placeholder="Find a team" aria-label="Find a team"></div>
+    <div id="gamelist"></div>
+    <div id="gamedetail"></div>
+  </section>
+</main>
+<footer class="wrap" style="padding-block:0 32px"><p class="note"><span id="updated"></span> Data: ESPN (scores, rankings, DraftKings lines). Free; no odds credits used. For entertainment and research only. Bet responsibly.</p></footer>
+<div class="toast" id="toast" hidden></div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D=JSON.parse(document.getElementById("data").textContent);
+const $=s=>document.querySelector(s);
+const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pct=x=>x==null?"–":Math.round(x*100)+"%";
+const fmtOdds=o=>o==null?"–":(o>0?"+"+o:String(o));
+const sgn=x=>(x>0?"+":"")+x;
+const logo=(t,s=22)=>t&&t.logo?`<img class="logo" src="${esc(t.logo)}" alt="" width="${s}" height="${s}" loading="lazy" onerror="this.remove()">`:"";
+const tname=t=>`${t.rank?`<span class="trank">${t.rank}</span>`:""}${esc(t.name)}`;
+const when=iso=>new Date(iso).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit"});
+const winTxt=p=>Math.max(p,1-p)>.99?">99%":pct(Math.max(p,1-p));
+const GAME=Object.fromEntries(D.games.map(g=>[g.id,g]));
+let state={cf:"top",game:null};try{Object.assign(state,JSON.parse(localStorage.getItem("overlay-cbb-v1")||"{}"));}catch(e){}
+const save=()=>{try{localStorage.setItem("overlay-cbb-v1",JSON.stringify(state));}catch(e){}};
+$("#weeklabel").textContent=new Date().toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}).toUpperCase();
+$("#updated").textContent="Updated "+new Date(D.generated).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit"})+".";
+if(!D.ready){$("#warm").hidden=false;$("#warm").innerHTML=`<b>Overlay's team ratings are warming up.</b> Most teams have played ${D.typicalGames} game${D.typicalGames===1?"":"s"}; ratings and leans switch on once they've played about ${D.minGames}, around early to mid December. Until then, the win chances come straight from DraftKings.`;}
+$("#cf").value=state.cf;$("#cf").onchange=e=>{state.cf=e.target.value;save();renderGames();};$("#q").oninput=renderGames;
+function spreadTxt(g){const o=g.odds;if(!o||o.spreadH==null)return"";return o.spreadH<=0?`${g.home.abbr} ${o.spreadH===0?"PK":o.spreadH}`:`${g.away.abbr} -${o.spreadH}`;}
+function list(){const q=$("#q").value.trim().toLowerCase();return D.games.filter(g=>(q?(g.home.name+" "+g.away.name+" "+g.home.abbr+" "+g.away.abbr).toLowerCase().includes(q):state.cf==="all"||(state.cf==="lines"?!!g.odds:(g.home.rank||g.away.rank))));}
+function renderGames(){const L=list();const days=[...new Set(L.map(g=>g.day))];
+  if(!L.length){$("#gamelist").innerHTML='<div class="panel"><p class="sub">No games match. Try "All games".</p></div>';$("#gamedetail").innerHTML="";return;}
+  $("#gamelist").innerHTML=days.map(day=>`<div class="daygroup">${new Date(day+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"})}</div><div class="gm-cards">`+L.filter(g=>g.day===day).map(g=>{const o=g.odds,fin=g.state==="post",live=g.state==="in";
+    return `<button class="game" aria-pressed="${state.game===g.id}" data-g="${g.id}"><div class="matchup">${logo(g.away)} ${tname(g.away)} ${g.neutral?"vs":"@"} ${logo(g.home)} ${tname(g.home)}</div>
+      <div class="meta"><span>${fin||live?esc(g.detail):when(g.start)}${g.tv?` · ${esc(g.tv)}`:""}</span>${o&&o.spreadH!=null?`<span>${spreadTxt(g)}</span>`:""}${o&&o.total!=null?`<span>O/U ${o.total}</span>`:""}</div>
+      <div class="meta">${fin||live?`<span><b>${g.away.abbr} ${g.scoreA} · ${g.home.abbr} ${g.scoreH}</b></span>`:g.pH!=null?`<span>${g.pH>=.5?g.home.abbr:g.away.abbr} ${winTxt(g.pH)} to win</span>`:"<span>No line</span>"}</div>
+      ${g.leans&&g.leans.length&&!fin?`<div class="envrow">${g.leans.map(l=>`<span class="chip">Lean ${l.type==="spread"?`${esc(l.team)} ${sgn(l.line)}`:`${l.side} ${l.line}`}</span>`).join("")}</div>`:""}</button>`;}).join("")+"</div>").join("");
+  const g=GAME[state.game];$("#gamedetail").innerHTML=g&&L.includes(g)?detail(g):"";}
+function detail(g){const o=g.odds,H=D.teams[g.home.id]||{},A=D.teams[g.away.id]||{};
+  const bets=o?`<div class="panel" style="margin-top:12px"><h3>Lines · ${esc(o.book)}</h3><table class="mini"><thead><tr><th></th><th>${esc(g.away.abbr)}</th><th>${esc(g.home.abbr)}</th></tr></thead><tbody>
+    ${o.spreadH!=null?`<tr><td>Spread</td><td>${sgn(-o.spreadH)} (${fmtOdds(o.spreadAOdds)})</td><td>${sgn(o.spreadH)} (${fmtOdds(o.spreadHOdds)})</td></tr>`:""}
+    ${o.mlH!=null?`<tr><td>Moneyline</td><td>${fmtOdds(o.mlA)}</td><td>${fmtOdds(o.mlH)}</td></tr><tr><td>Win chance</td><td>${pct(1-g.pH)}</td><td>${pct(g.pH)}</td></tr>`:""}
+    ${o.total!=null?`<tr><td>Total</td><td colspan="2">${o.total} (Over ${fmtOdds(o.overOdds)} / Under ${fmtOdds(o.underOdds)})</td></tr>`:""}</tbody></table>
+    ${o.spreadHOpen!=null&&o.spreadH!=null&&o.spreadHOpen!==o.spreadH?`<p class="sub">Spread moved from ${g.home.abbr} ${sgn(o.spreadHOpen)} to ${sgn(o.spreadH)}${o.totalOpen!=null&&o.totalOpen!==o.total?`; total from ${o.totalOpen} to ${o.total}`:""}.</p>`:""}</div>`:`<p class="sub">No DraftKings line for this game.</p>`;
+  const m=g.model;const take=D.ready&&m?`<div class="panel" style="margin-top:12px"><h3>Overlay's rough numbers</h3><p>${m.margin>=0?`${esc(g.home.abbr)} by ${m.margin.toFixed(1)}`:`${esc(g.away.abbr)} by ${(-m.margin).toFixed(1)}`}, total about ${m.total.toFixed(0)}.</p>
+    ${g.leans.length?`<p>${g.leans.map(l=>`<span class="lean">Lean: ${l.type==="spread"?`${esc(l.team)} ${sgn(l.line)}`:`${l.side} ${l.line}`}</span> (${l.by} off the line)`).join(" · ")}</p>`:'<p class="sub">Close to the market, so no lean.</p>'}
+    <p class="sub">Built from scores only, adjusted for opponents and home court. Untested against lines so far, so treat it as a second opinion; the Today page tracks how its leans do.</p></div>`:"";
+  return `<div class="panel gamepanel" id="gd"><h2>${logo(g.away,34)} ${tname(g.away)} ${g.neutral?"vs":"@"} ${logo(g.home,34)} ${tname(g.home)}</h2>
+    <p class="sub">${g.state==="pre"?when(g.start):esc(g.detail)}${g.tv?` · ${esc(g.tv)}`:""}${g.neutral?" · Neutral site":""}</p>
+    <div class="tablebox" style="margin-top:10px"><table class="cmp"><thead><tr><th></th><th>${esc(g.away.abbr)}</th><th>${esc(g.home.abbr)}</th></tr></thead><tbody>
+      <tr><td>Record</td><td class="v">${esc(g.away.rec||"–")}</td><td class="v">${esc(g.home.rec||"–")}</td></tr>
+      <tr><td>Points per game</td><td class="v">${A.ppg??"–"}</td><td class="v">${H.ppg??"–"}</td></tr>
+      <tr><td>Points allowed</td><td class="v">${A.oppg??"–"}</td><td class="v">${H.oppg??"–"}</td></tr>
+      ${D.ready?`<tr><td>Overlay rank</td><td class="v">#${A.ratingRank??"–"}</td><td class="v">#${H.ratingRank??"–"}</td></tr>`:""}</tbody></table></div>${bets}${take}</div>`;}
+document.addEventListener("click",e=>{const b=e.target.closest(".game");if(!b)return;state.game=state.game===b.dataset.g?null:b.dataset.g;save();renderGames();if(state.game)setTimeout(()=>$("#gd")?.scrollIntoView({behavior:"smooth",block:"start"}),30);});
+renderGames();
+(function(){const q=new URLSearchParams(location.search);if(q.get("game")&&GAME[q.get("game")]){const g=GAME[q.get("game")];state.game=g.id;if(!g.home.rank&&!g.away.rank)state.cf="all";$("#cf").value=state.cf;renderGames();setTimeout(()=>$("#gd")?.scrollIntoView({block:"start"}),50);}
+  if(q.toString())history.replaceState(null,"",location.pathname);})();
+</script>

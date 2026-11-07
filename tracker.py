@@ -21,6 +21,7 @@ SHARP = ["pinnacle", "fanduel", "draftkings", "betmgm", "espnbet", "betrivers", 
 BOOKW = {"pinnacle": 3, "fanduel": 1.5, "draftkings": 1.5, "betmgm": 1, "espnbet": 1, "betrivers": 1, "bovada": .5}
 NFL_COL = {"Pass Yds": "passing_yards", "Rush Yds": "rushing_yards", "Rec Yds": "receiving_yards", "Receptions": "receptions"}
 NFL_PICKS_PER_GAME = 3     # Overlay's NFL picks: best 3 props (54%+) in each game
+NHL_PROPS_PER_DAY = 8
 NBA_PROPS_PER_DAY = 8      # Overlay's daily NBA prop picks (biggest matchup boosts)
 NBA_PROP_MIN_CHANCE = .55  # Overlay must give the side at least 55%
 NBA_PROP_MIN_EDGE = .05    # ...and at least 5 points more than DraftKings does
@@ -171,8 +172,23 @@ def nba_picks(nba):
     return sorted(out, key=lambda x: -x["edge"])
 
 
+def nhl_picks(nhl):
+    """Overlay's NHL prop picks: Overlay's Poisson chance vs DraftKings' no-vig chance, same filters as NBA."""
+    out = []
+    for p in nhl.get("players", []):
+        for pr in p["props"]:
+            if pr.get("line") is None or pr.get("ours") is None: continue
+            side = "More" if pr["ours"] >= pr["pOver"] else "Less"
+            ch, mk = (pr["ours"], pr["pOver"]) if side == "More" else (1 - pr["ours"], 1 - pr["pOver"])
+            odds = pr["overOdds"] if side == "More" else pr["underOdds"]
+            if ch < NBA_PROP_MIN_CHANCE or not NBA_PROP_MIN_EDGE <= ch - mk <= NBA_PROP_MAX_EDGE or odds < -160: continue
+            out.append({"name": p["name"], "id": p["id"], "team": p["team"], "opp": p["opp"], "game": p["game"], "stat": pr["stat"], "line": pr["line"],
+                        "side": side, "odds": odds, "proj": pr["proj"], "chance": round(ch, 4), "mkt": round(mk, 4), "edge": round(ch - mk, 4)})
+    return sorted(out, key=lambda x: -x["edge"])
+
+
 def run(a):
-    nfl = load_json(a.nfl, {}); nba = load_json(a.nba, {}); cfb = load_json(a.cfb, {})
+    nfl = load_json(a.nfl, {}); nba = load_json(a.nba, {}); cfb = load_json(a.cfb, {}); nhl = load_json(a.nhl, {}); cbb = load_json(a.cbb, {})
     hist = load_json(a.history, {"picks": {}, "injurySnap": {}, "injuryNews": []})
     picks = hist["picks"]; t_now = now()
 
@@ -215,6 +231,25 @@ def run(a):
         g = next((x for x in cfb.get("games", []) if x["id"] == picks[k]["game"]), None)
         if g and g.get("state") == "pre" and not any(f"cfb|{g['id']}|{l['type']}" == k for l in g.get("leans", [])): del picks[k]  # lean went away before kickoff
 
+    for g in cbb.get("games", []):
+        if g.get("state") != "pre" or datetime.fromisoformat(g["start"].replace("Z", "+00:00")) <= t_now: continue
+        for l in g.get("leans", []):
+            picks[f"cbb|{g['id']}|{l['type']}"] = {"sport": "cbb", "game": g["id"], "away": g["away"]["abbr"], "home": g["home"]["abbr"], **l, "kickoff": g["start"], "logged": iso(t_now), "result": None}
+        for l_type in ("spread", "total"):
+            k = f"cbb|{g['id']}|{l_type}"
+            if k in picks and picks[k].get("result") is None and not any(l["type"] == l_type for l in g.get("leans", [])): del picks[k]
+    nhl_g = {str(g["id"]): g for g in nhl.get("games", [])}
+    for r in nhl_picks(nhl):
+        g = nhl_g.get(str(r["game"]))
+        if not g or g.get("state") != "pre" or datetime.fromisoformat(g["start"].replace("Z", "+00:00")) <= t_now: continue
+        day = g["day"]; k = f"nhl|prop|{g['id']}|{r['id']}|{r['stat']}"
+        if k in picks and picks[k].get("result") is not None: continue
+        if k not in picks:
+            if sum(p["sport"] == "nhl" and p.get("day") == day for p in picks.values()) >= NHL_PROPS_PER_DAY: continue
+            if any(p["sport"] == "nhl" and p.get("id") == r["id"] and str(p["game"]) == str(g["id"]) for p in picks.values()): continue
+        picks[k] = {"sport": "nhl", "type": "prop", "game": g["id"], "day": day, "away": g["away"], "home": g["home"], **{x: r[x] for x in ("name", "id", "team", "opp", "stat", "line", "side", "odds", "proj", "chance", "mkt")},
+                    "kickoff": g["start"], "logged": iso(t_now), "result": None}
+
     starts = {str(g["id"]): g for g in nba_games}
     for r in nba_picks(nba):
         g = starts.get(str(r["game"]))
@@ -222,8 +257,8 @@ def run(a):
         day = g["day"]; k = f"nba|prop|{g['id']}|{r['id']}|{r['stat']}"
         if k in picks and picks[k].get("result") is not None: continue
         if k not in picks:
-            if sum(p.get("type") == "prop" and p.get("day") == day for p in picks.values()) >= NBA_PROPS_PER_DAY: continue
-            if any(p.get("type") == "prop" and p.get("id") == r["id"] and str(p["game"]) == str(g["id"]) for p in picks.values()): continue  # one stat per player
+            if sum(p["sport"] == "nba" and p.get("type") == "prop" and p.get("day") == day for p in picks.values()) >= NBA_PROPS_PER_DAY: continue
+            if any(p["sport"] == "nba" and p.get("type") == "prop" and p.get("id") == r["id"] and str(p["game"]) == str(g["id"]) for p in picks.values()): continue  # one stat per player
         picks[k] = {"sport": "nba", "type": "prop", "game": g["id"], "day": day, "away": g["away"], "home": g["home"], "name": r["name"], "id": r["id"],
                     "team": r["team"], "opp": r["opp"], "stat": r["stat"], "line": r["line"], "side": r["side"], "odds": r["odds"], "proj": r["proj"],
                     "chance": r["chance"], "mkt": r["mkt"], "kickoff": g["start"], "logged": iso(t_now), "result": None}
@@ -279,8 +314,16 @@ def run(a):
     except Exception as e:
         print("NBA grading skipped:", e, file=sys.stderr); sch = None
 
-    for k, pk in picks.items():  # college football: ESPN finals in cfb.json
-        f = (cfb.get("finals") or {}).get(str(pk["game"])) if pk["sport"] == "cfb" and pk.get("result") is None else None
+    nbox = {str(g): {norm(n): v for n, v in d.items()} for g, d in (nhl.get("box") or {}).items()}
+    for k, pk in picks.items():  # NHL props: ESPN box scores in nhl.json
+        if pk["sport"] != "nhl" or pk.get("result") is not None or str(pk["game"]) not in (nhl.get("finals") or {}): continue
+        e = (nbox.get(str(pk["game"])) or {}).get(norm(pk["name"]))
+        if e is None: pk["result"] = "void"; continue
+        v = float(e.get(pk["stat"], 0)); pk["actual"] = v
+        pk["result"] = "push" if v == pk["line"] else ("win" if (v > pk["line"]) == (pk["side"] == "More") else "loss")
+    for k, pk in picks.items():  # college football + college basketball: ESPN finals
+        src = cfb if pk["sport"] == "cfb" else cbb if pk["sport"] == "cbb" else None
+        f = (src.get("finals") or {}).get(str(pk["game"])) if src and pk.get("result") is None else None
         if not f: continue
         aw_, hm_, sa_, sh_ = f; pk["final"] = f"{aw_} {sa_} · {hm_} {sh_}"
         x = ((sh_ - sa_) if pk["side"] == "H" else (sa_ - sh_)) + pk["line"] if pk["type"] == "spread" else (sa_ + sh_ - pk["line"]) * (1 if pk["side"] == "Over" else -1)
@@ -330,10 +373,13 @@ def run(a):
         s["label"] = label; s["exp"] = round(sum(p["chance"] for p in sel if p.get("result") in ("win", "loss")) / s["n"], 3) if s["n"] else None
         buckets.append(s)
     nbap = [p for p in picks.values() if p["sport"] == "nba" and p.get("type") != "prop"]
-    nbaprops = [p for p in picks.values() if p.get("type") == "prop"]
+    nbaprops = [p for p in picks.values() if p["sport"] == "nba" and p.get("type") == "prop"]
+    nhlprops = [p for p in picks.values() if p["sport"] == "nhl"]
+    cbbp = [p for p in picks.values() if p["sport"] == "cbb"]
     cfbp = [p for p in picks.values() if p["sport"] == "cfb"]
     graded = sorted([p for p in picks.values() if p.get("result") in ("win", "loss", "push")], key=lambda p: p["kickoff"], reverse=True)
-    recent = {"nflProps": [p for p in graded if p["sport"] == "nfl"][:15], "nbaProps": [p for p in graded if p.get("type") == "prop"][:24],
+    recent = {"nflProps": [p for p in graded if p["sport"] == "nfl"][:15], "nbaProps": [p for p in graded if p["sport"] == "nba" and p.get("type") == "prop"][:24],
+              "nhlProps": [p for p in graded if p["sport"] == "nhl"][:24], "cbb": [p for p in graded if p["sport"] == "cbb"][:15],
               "nbaTeams": [p for p in graded if p["sport"] == "nba" and p.get("type") != "prop"][:15],
               "cfb": [p for p in graded if p["sport"] == "cfb"][:15]}
     track = {"nfl": {**summary(nflp), "buckets": buckets, "pending": sum(p.get("result") is None for p in nflp),
@@ -344,6 +390,10 @@ def run(a):
                           "ours": round(sum(p["chance"] for p in nbaprops if p.get("result") in ("win", "loss")) / max(1, summary(nbaprops)["n"]), 3),
                           "mkt": round(sum(p["mkt"] for p in nbaprops if p.get("result") in ("win", "loss")) / max(1, summary(nbaprops)["n"]), 3),
                           "byStat": {st_: summary([p for p in nbaprops if p["stat"] == st_]) for st_ in sorted({p["stat"] for p in nbaprops})}},
+             "nhlProps": {**summary(nhlprops), "pending": sum(p.get("result") is None for p in nhlprops),
+                          "ours": round(sum(p["chance"] for p in nhlprops if p.get("result") in ("win", "loss")) / max(1, summary(nhlprops)["n"]), 3),
+                          "mkt": round(sum(p["mkt"] for p in nhlprops if p.get("result") in ("win", "loss")) / max(1, summary(nhlprops)["n"]), 3)},
+             "cbb": {"spread": summary([p for p in cbbp if p["type"] == "spread"]), "total": summary([p for p in cbbp if p["type"] == "total"]), "pending": sum(p.get("result") is None for p in cbbp)},
              "cfb": {"spread": summary([p for p in cfbp if p["type"] == "spread"]), "total": summary([p for p in cfbp if p["type"] == "total"]),
                      "pending": sum(p.get("result") is None for p in cfbp)},
              "nba": {"spread": summary([p for p in nbap if p["type"] == "spread"]), "total": summary([p for p in nbap if p["type"] == "total"]),
@@ -422,11 +472,16 @@ def run(a):
             pa, ph = imp(g["mlA"]), imp(g["mlH"]); pH = ph / (pa + ph)
         nfl_games_out.append({"id": g["id"], "away": g["away"], "home": g["home"], "kickoff": iso(nfl_kickoff(g)), "spread": g.get("spread"), "total": g.get("total"), "pH": round(pH, 3) if pH else None})
     imgs = {p["id"]: p.get("img", "") for p in nba.get("players", [])}
+    nimgs = {p["id"]: p.get("img", "") for p in nhl.get("players", [])}
     today = {"generated": iso(t_now), "nflWeek": nfl.get("week"), "nflLinesAt": fetched, "nflTop": nfl_top, "nflPicks": nfl_picks, "nflGames": nfl_games_out,
              "nbaGames": nba_day_games, "nbaTop": nba_top, "cfbWeek": cfb.get("week"), "cfbGames": [{x: g[x] for x in ("id", "start", "day", "state", "detail", "neutral", "tv", "pH", "odds", "leans", "model", "scoreH", "scoreA") if x in g}
                  | {"home": {k: g["home"][k] for k in ("abbr", "name", "rank", "logo", "rec")}, "away": {k: g["away"][k] for k in ("abbr", "name", "rank", "logo", "rec")}}
                  for g in cfb.get("games", []) if g["home"].get("rank") or g["away"].get("rank") or g.get("leans")],
-             "nbaPicks": sorted([{**p, "img": imgs.get(p["id"], "")} for p in picks.values() if p.get("type") == "prop" and (p.get("result") is None or p.get("day") == t_now.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d"))], key=lambda p: p["kickoff"])[:24], "nbaInjuries": nba_inj_now[:10], "injuryNews": {"nfl": nfl_inj, "nba": nba_inj},
+             "nhlPicks": sorted([{**p, "img": nimgs.get(p["id"], "")} for p in picks.values() if p["sport"] == "nhl" and (p.get("result") is None or p.get("day") == t_now.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d"))], key=lambda p: p["kickoff"])[:24],
+             "nhlGames": [{x: g.get(x) for x in ("id", "start", "day", "state", "detail", "home", "away", "recH", "recA", "scoreH", "scoreA", "odds", "pH", "tv")} for g in nhl.get("games", [])],
+             "cbbGames": [{x: g.get(x) for x in ("id", "start", "day", "state", "detail", "neutral", "home", "away", "scoreH", "scoreA", "odds", "pH", "tv", "leans")} for g in cbb.get("games", []) if g["home"].get("rank") or g["away"].get("rank") or g.get("leans")],
+             "cbbReady": cbb.get("ready"),
+             "nbaPicks": sorted([{**p, "img": imgs.get(p["id"], "")} for p in picks.values() if p["sport"] == "nba" and p.get("type") == "prop" and (p.get("result") is None or p.get("day") == t_now.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d"))], key=lambda p: p["kickoff"])[:24], "nbaInjuries": nba_inj_now[:10], "injuryNews": {"nfl": nfl_inj, "nba": nba_inj},
              "track": track, "results": res, "credits": (nfl.get("odds") or {}).get("remaining")}
     json.dump(today, open(a.out, "w"), separators=(",", ":"))
     print(f"today: {len(nfl_top)} NFL picks, {len(nba_day_games)} NBA games, {len(nba_top)} NBA props; track NFL {track['nfl']['w']}-{track['nfl']['l']} "
@@ -435,6 +490,6 @@ def run(a):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--nfl", default="data.json"); ap.add_argument("--nba", default="nba.json"); ap.add_argument("--cfb", default="cfb.json")
+    ap.add_argument("--nfl", default="data.json"); ap.add_argument("--nba", default="nba.json"); ap.add_argument("--cfb", default="cfb.json"); ap.add_argument("--nhl", default="nhl.json"); ap.add_argument("--cbb", default="cbb.json")
     ap.add_argument("--history", default="history.json"); ap.add_argument("--out", default="today.json"); ap.add_argument("--local")
     run(ap.parse_args())

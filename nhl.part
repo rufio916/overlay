@@ -1,0 +1,139 @@
+<style>
+.flt{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 14px}
+.flt select,.flt input{font:inherit;padding:7px 10px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+.statrow{display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;text-align:left;background:none;border:0;border-top:1px solid var(--line);font:inherit;color:inherit;cursor:pointer;padding:9px 0}
+.statrow:first-child{border-top:0}
+.statrow .r{display:flex;gap:8px;align-items:center;flex-shrink:0}
+.statrow:hover b{text-decoration:underline}
+.lastg{display:flex;gap:4px;flex-wrap:wrap}
+.lastg span{font-family:var(--mono);font-size:11px;padding:2px 6px;border-radius:4px;background:var(--raised)}
+.lastg span.W{color:var(--pos)} .lastg span.L{color:var(--neg)}
+.plist{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+@media (max-width:720px){.plist{grid-template-columns:1fr}}
+</style>
+<header class="top">
+  <div class="topin">
+    <div class="brand">Over<span>lay</span></div>
+    <nav class="sport" aria-label="Sport"></nav>
+    <div class="week" id="weeklabel"></div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="games">Games</button>
+    <button role="tab" aria-selected="false" data-tab="props">Props</button>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section id="games">
+    <h2>NHL</h2>
+    <p class="lede">Tonight's games with DraftKings lines. Tap a game for both teams' numbers and recent results.</p>
+    <div id="gamelist"></div>
+    <div id="gamedetail"></div>
+  </section>
+  <section id="props" hidden>
+    <h2>Player props</h2>
+    <div class="banner"><b>Lines are DraftKings', pulled free twice a day.</b> Overlay's chance comes from each player's shots, points and ice time this season, adjusted for the opponent. PrizePicks usually sits close to these lines; type theirs in to check it.</div>
+    <div class="flt"><select id="pgame" aria-label="Game"><option value="">All games</option></select><select id="pstat" aria-label="Stat"><option value="">All stats</option><option>Shots on Goal</option><option>Points</option><option>Assists</option><option>Saves</option><option>Blocked Shots</option><option>Goals</option></select><input id="psearch" type="search" placeholder="Find a player" aria-label="Find a player"></div>
+    <div id="plist" class="plist"></div>
+  </section>
+</main>
+<footer class="wrap" style="padding-block:0 32px"><p class="note"><span id="updated"></span> Data: ESPN (scores, box scores, DraftKings lines). Free; no odds credits used. For entertainment and research only. Bet responsibly.</p></footer>
+<div class="toast" id="toast" hidden></div>
+<div class="scrim" id="scrim" hidden></div>
+<aside class="sheet" id="sheet" hidden aria-label="Player detail"></aside>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D=JSON.parse(document.getElementById("data").textContent);
+const $=s=>document.querySelector(s);
+const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pct=x=>x==null?"–":Math.round(x*100)+"%";
+const fmtOdds=o=>o==null?"–":(o>0?"+"+o:String(o));
+const sgn=x=>(x>0?"+":"")+x;
+const logo=(t,s=22)=>t?`<img class="logo" src="https://a.espncdn.com/i/teamlogos/nhl/500/${t.toLowerCase()}.png" alt="" width="${s}" height="${s}" loading="lazy" onerror="this.remove()">`:"";
+const hs=(p,size="")=>p&&p.img?`<img class="hs ${size}" src="${esc(p.img)}" alt="" loading="lazy" onerror="this.remove()">`:"";
+const when=iso=>new Date(iso).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit"});
+const BE=.542;
+const GAME=Object.fromEntries(D.games.map(g=>[g.id,g]));const P=D.players||[];
+let state={game:null,tab:"games"};try{Object.assign(state,JSON.parse(localStorage.getItem("overlay-nhl-v1")||"{}"));}catch(e){}
+const save=()=>{try{localStorage.setItem("overlay-nhl-v1",JSON.stringify(state));}catch(e){}};
+$("#weeklabel").textContent=new Date().toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}).toUpperCase();
+$("#updated").textContent="Updated "+new Date(D.generated).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit"})+".";
+
+// ---------- games ----------
+const puck=g=>{const o=g.odds;if(!o||o.spreadH==null)return"";return `${o.spreadH<0?g.home:g.away} -1.5`;};
+function renderGames(){const days=[...new Set(D.games.map(g=>g.day))];
+  if(!D.games.length){$("#gamelist").innerHTML='<div class="panel"><p class="sub">No games scheduled.</p></div>';return;}
+  $("#gamelist").innerHTML=days.map(day=>`<div class="daygroup">${new Date(day+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"})}</div><div class="gm-cards">`+D.games.filter(g=>g.day===day).map(g=>{const o=g.odds,fin=g.state==="post",live=g.state==="in";
+    return `<button class="game" aria-pressed="${state.game===g.id}" data-g="${g.id}"><div class="matchup">${logo(g.away)} ${g.away} @ ${logo(g.home)} ${g.home}</div>
+      <div class="meta"><span>${fin||live?esc(g.detail):when(g.start)}</span>${o&&o.mlH!=null?`<span>ML ${g.away} ${fmtOdds(o.mlA)} / ${g.home} ${fmtOdds(o.mlH)}</span>`:""}${o&&o.total!=null?`<span>O/U ${o.total}</span>`:""}</div>
+      <div class="meta">${fin||live?`<span><b>${g.away} ${g.scoreA} · ${g.home} ${g.scoreH}</b></span>`:g.pH!=null?`<span>${g.pH>=.5?g.home:g.away} ${pct(Math.max(g.pH,1-g.pH))} to win</span>`:"<span>Lines not posted</span>"}<span>${esc(g.recA)} · ${esc(g.recH)}</span></div></button>`;}).join("")+"</div>").join("");
+  const g=GAME[state.game];$("#gamedetail").innerHTML=g?detail(g):"";}
+function detail(g){const H=D.teams[g.home]||{},A=D.teams[g.away]||{},o=g.odds;
+  const row=(label,k,hiGood,rk)=>{const a=A[k],h=H[k];if(a==null||h==null)return"";const b=hiGood?(a>h?"A":h>a?"H":""):(a<h?"A":h<a?"H":"");
+    return `<tr><td>${label}</td><td class="v ${b==="A"?"better":""}">${a} <span class="sub">#${A[rk]}</span></td><td class="v ${b==="H"?"better":""}">${h} <span class="sub">#${H[rk]}</span></td></tr>`;};
+  const last=t=>(t.last||[]).map(x=>`<span class="${x.gf>x.ga?"W":"L"}">${x.gf>x.ga?"W":"L"} ${x.home?"":"@"}${esc(x.opp)} ${x.gf}-${x.ga}</span>`).join("");
+  const why=[];const lg=D.league;
+  if(H.sf&&A.sa){why.push(`<b>${g.home} shots:</b> they average ${H.sf} a game and ${g.away} allows ${A.sa} (league ${lg.sf}). ${A.sa>lg.sf+1.5?"A good spot for "+g.home+" shooters.":A.sa<lg.sf-1.5?"A tough spot for "+g.home+" shooters.":""}`);
+    why.push(`<b>${g.away} shots:</b> they average ${A.sf} a game and ${g.home} allows ${H.sa}. ${H.sa>lg.sf+1.5?"A good spot for "+g.away+" shooters.":H.sa<lg.sf-1.5?"A tough spot for "+g.away+" shooters.":""}`);}
+  if(o&&o.mlHOpen!=null&&o.mlH!=null&&o.mlHOpen!==o.mlH)why.push(`<b>Line movement:</b> ${g.home} ${fmtOdds(o.mlHOpen)} → ${fmtOdds(o.mlH)}, money on <b>${o.mlH<o.mlHOpen?g.home:g.away}</b>.`);
+  const bets=o?`<div class="panel" style="margin-top:12px"><h3>Lines · ${esc(o.book)}</h3><table class="mini"><thead><tr><th></th><th>${g.away}</th><th>${g.home}</th></tr></thead><tbody>
+    ${o.mlH!=null?`<tr><td>Moneyline</td><td>${fmtOdds(o.mlA)}</td><td>${fmtOdds(o.mlH)}</td></tr><tr><td>Win chance</td><td>${pct(1-g.pH)}</td><td>${pct(g.pH)}</td></tr>`:""}
+    ${o.spreadH!=null?`<tr><td>Puck line</td><td>${sgn(-o.spreadH)} (${fmtOdds(o.spreadAOdds)})</td><td>${sgn(o.spreadH)} (${fmtOdds(o.spreadHOdds)})</td></tr>`:""}
+    ${o.total!=null?`<tr><td>Total</td><td colspan="2">${o.total} (Over ${fmtOdds(o.overOdds)} / Under ${fmtOdds(o.underOdds)})</td></tr>`:""}</tbody></table></div>`:"";
+  return `<div class="panel gamepanel" id="gd"><h2>${logo(g.away,34)} ${esc(g.awayName||g.away)} @ ${logo(g.home,34)} ${esc(g.homeName||g.home)}</h2><p class="sub">${g.state==="pre"?when(g.start):esc(g.detail)}${g.tv?` · ${esc(g.tv)}`:""}</p>
+    <div class="tablebox" style="margin-top:10px"><table class="cmp"><thead><tr><th></th><th>${g.away}</th><th>${g.home}</th></tr></thead><tbody>
+      <tr><td>Record</td><td class="v">${esc(g.recA)}</td><td class="v">${esc(g.recH)}</td></tr>
+      ${row("Goals for","gf",true,"gfRank")}${row("Goals against","ga",false,"gaRank")}${row("Shots for","sf",true,"sfRank")}${row("Shots against","sa",false,"saRank")}</tbody></table></div>
+    ${why.length?`<div class="sec">What matters</div><ul class="why">${why.map(x=>`<li>${x}</li>`).join("")}</ul>`:""}${bets}
+    <div class="sec">Last games</div><p class="sub">${g.away}</p><div class="lastg">${last(A)}</div><p class="sub" style="margin-top:6px">${g.home}</p><div class="lastg">${last(H)}</div>
+    <p style="margin-top:12px"><button class="btn" data-props="${g.id}">See player props for this game ›</button></p></div>`;}
+
+// ---------- props ----------
+const pois=(lam,line)=>{lam=Math.max(lam,.01);let c=0,t=Math.exp(-lam);for(let i=0;i<=Math.floor(line);i++){if(i)t*=lam/i;c+=t;}return 1-c;};
+[...new Set(P.map(p=>p.game))].forEach(id=>{const g=GAME[id];if(g)$("#pgame").insertAdjacentHTML("beforeend",`<option value="${id}">${g.away} @ ${g.home}</option>`);});
+$("#pgame").onchange=$("#pstat").onchange=$("#psearch").oninput=renderProps;
+function best(pr){if(pr.line==null||pr.ours==null)return null;const more=pr.ours>=pr.pOver;return{side:more?"More":"Less",ch:more?pr.ours:1-pr.ours,mk:more?pr.pOver:1-pr.pOver};}
+function renderProps(){const gf=$("#pgame").value,sf=$("#pstat").value,q=$("#psearch").value.trim().toLowerCase();
+  const L=P.map((p,i)=>[p,i]).filter(([p])=>(!gf||p.game===gf)&&(!sf||p.props.some(x=>x.stat===sf))&&(!q||p.name.toLowerCase().includes(q))).slice(0,120);
+  $("#plist").innerHTML=L.length?L.map(([p,i])=>`<div class="panel" style="padding:12px 14px"><div class="who">${hs(p)}<div><div class="pname">${esc(p.name)}</div><div class="sub">${p.pos} · ${p.team} ${p.home?"vs":"@"} ${p.opp} · ${when(p.start)} · ${p.toi} min a game</div></div></div>
+    <div style="margin-top:8px">${p.props.filter(x=>!sf||x.stat===sf).map(pr=>{const k=p.props.indexOf(pr);const b=best(pr);
+      return `<button class="statrow" data-pi="${i}" data-ki="${k}"><span><b>${esc(pr.stat)}</b><div class="sub">${pr.line!=null?`DK ${pr.line} · `:""}avg ${pr.avg} · our proj ${pr.proj}</div></span><span class="r">${b?`<span class="pick ${b.side==="More"?"more":"less"}">${b.side}</span><span class="edge ${b.ch>=BE?"hot":"cold"}">${pct(b.ch)}</span>`:`<span class="sub">no line</span>`}<span class="sub" aria-hidden="true">›</span></span></button>`;}).join("")}</div></div>`).join("")
+    :'<div class="panel"><p class="sub">No players match. Lines show up once DraftKings posts them, usually by the morning refresh.</p></div>';}
+let cur=null;
+function bars(L,line){const W=460,H=150,pad={l:28,r:8,t:14,b:36};const n=Math.max(L.length,1);const max=Math.max(...L.map(v=>v.v),line||0,1)*1.25;
+  const y=v=>pad.t+(H-pad.t-pad.b)*(1-v/max);const bw=(W-pad.l-pad.r)/n;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Game log">${L.map((v,k)=>`<rect x="${pad.l+k*bw+bw*.22}" y="${y(v.v)}" width="${bw*.56}" height="${Math.max(0,y(0)-y(v.v))}" rx="2" fill="${v.v>line?"var(--pos)":"var(--line)"}"/><text x="${pad.l+k*bw+bw/2}" y="${y(v.v)-4}" text-anchor="middle">${v.v}</text><text x="${pad.l+k*bw+bw/2}" y="${H-20}" text-anchor="middle">${esc(v.d)}</text><text x="${pad.l+k*bw+bw/2}" y="${H-6}" text-anchor="middle" style="fill:var(--fg)">${v.home?"":"@"}${esc(v.opp)}</text>`).join("")}
+  <line x1="${pad.l}" x2="${W-pad.r}" y1="${y(line)}" y2="${y(line)}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4"/></svg><div class="sub"><span style="color:var(--accent)">- - -</span> Line ${line}</div>`;}
+function hitsHtml(pr){const hit=v=>cur.side==="More"?v.v>cur.line:v.v<cur.line;const l5=pr.log.slice(-5);const pm=pois(pr.proj,cur.line);const est=cur.side==="More"?pm:1-pm;
+  return `<div><span>Last 5</span><b>${l5.filter(hit).length}/${l5.length}</b></div><div><span>Last 10</span><b>${pr.log.filter(hit).length}/${pr.log.length}</b></div><div><span>Est. chance</span><b style="color:${est>=BE?"var(--pos)":"var(--fg)"}">${Math.round(est*100)}%</b></div>`;}
+function openPlayer(pi,ki){const pr=P[pi].props[ki];const b=best(pr);cur={pi,ki,side:b?b.side:"More",line:pr.line??Math.max(.5,Math.round(pr.proj)-.5)};drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;}
+const ord=n=>n+(n%100>=11&&n%100<=13?"th":({1:"st",2:"nd",3:"rd"}[n%10]||"th"));
+const mostOf=(r,n=32)=>{const m=n+1-r;return m===1?"the most":`the ${ord(m)}-most`;};
+function drawSheet(){const p=P[cur.pi],pr=p.props[cur.ki];const O=D.teams[p.opp]||{},lg=D.league;
+  const shotStat=pr.stat==="Shots on Goal";const f=pr.fac;
+  const verdict=`<div class="verdict ${f>1.04?"good":f<.96?"bad":"mid"}"><strong>${f>1.04?"Good":f<.96?"Tough":"Average"} matchup</strong>${shotStat?`${p.opp} allows ${O.sa} shots a game, ${mostOf(O.saRank)} in the league (average ${lg.sf}).`:pr.stat==="Saves"?`${p.opp} takes ${O.sf} shots a game (average ${lg.sf}); more shots means more saves.`:pr.stat==="Blocked Shots"?`${p.opp} takes ${O.sf} shots a game (average ${lg.sf}); more shots means more chances to block.`:`${p.opp} allows ${O.ga} goals a game, ${mostOf(O.gaRank)} in the league (average ${lg.gf}).`} Overlay's projection: <b>${pr.proj}</b>, from his rate per 60 minutes, ${p.toi} minutes a game lately, and this matchup.</div>`;
+  $("#sheet").innerHTML=`<div class="sheethead"><div class="who">${hs(p,"lg")}<div><h2>${esc(p.name)}</h2><div class="sub">${p.pos} · ${p.team} ${p.home?"vs":"@"} ${p.opp} · ${when(p.start)}</div></div></div><button class="close" id="closebtn">Close</button></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0">${p.props.map((x,k)=>`<button class="btn" data-pi="${cur.pi}" data-ki="${k}" ${k===cur.ki?'style="border-color:var(--accent);color:var(--accent)"':""}>${esc(x.stat)}</button>`).join(" ")}</div>
+    <div class="checker"><div class="row"><label for="lineinput" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase">Line</label><input type="number" id="lineinput" step="0.5" min="0" value="${cur.line}">
+      <div class="seg"><button class="more" data-side="More" aria-pressed="${cur.side==="More"}">More</button><button class="less" data-side="Less" aria-pressed="${cur.side==="Less"}">Less</button></div></div>
+      ${pr.line!=null?`<p class="sub" style="margin:6px 0 0">DraftKings: ${pr.line} (Over ${fmtOdds(pr.overOdds)} / Under ${fmtOdds(pr.underOdds)}), so the book has Over at <b>${pct(pr.pOver)}</b> after the vig.</p>`:""}
+      <div class="hits" id="hitsbox">${hitsHtml(pr)}</div><p class="sub" style="margin:6px 0 0">Needs about 54% for a 6-pick Flex. Hockey stats are lumpy, so even good spots miss often.</p></div>
+    ${verdict}<div class="sec">${esc(pr.stat)}, last ${pr.log.length} games</div><div id="logchart">${bars(pr.log,cur.line)}</div>`;
+  $("#closebtn").onclick=closeSheet;
+  $("#lineinput").oninput=e=>{const v=parseFloat(e.target.value);if(!isNaN(v)){cur.line=v;$("#hitsbox").innerHTML=hitsHtml(pr);$("#logchart").innerHTML=bars(pr.log,cur.line);}};
+  document.querySelectorAll("#sheet .seg button").forEach(b=>b.onclick=()=>{cur.side=b.dataset.side;document.querySelectorAll("#sheet .seg button").forEach(x=>x.setAttribute("aria-pressed",x===b));$("#hitsbox").innerHTML=hitsHtml(pr);});}
+function closeSheet(){$("#sheet").hidden=true;$("#scrim").hidden=true;cur=null;}
+$("#scrim").onclick=closeSheet;document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet();});
+document.addEventListener("click",e=>{const b=e.target.closest("[data-pi]");if(b){openPlayer(+b.dataset.pi,+b.dataset.ki);return;}
+  const g=e.target.closest(".game");if(g){state.game=state.game===g.dataset.g?null:g.dataset.g;save();renderGames();if(state.game)setTimeout(()=>$("#gd")?.scrollIntoView({behavior:"smooth",block:"start"}),30);return;}
+  const pg=e.target.closest("[data-props]");if(pg){$("#pgame").value=pg.dataset.props;setTab("props");renderProps();window.scrollTo(0,0);}});
+const TABS=["games","props"];
+function setTab(t){if(!TABS.includes(t))t="games";state.tab=t;save();document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));TABS.forEach(id=>$("#"+id).hidden=id!==t);}
+document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
+renderGames();renderProps();setTab(state.tab);
+(function(){const q=new URLSearchParams(location.search);
+  if(q.get("game")&&GAME[q.get("game")]){state.game=q.get("game");setTab("games");renderGames();setTimeout(()=>$("#gd")?.scrollIntoView({block:"start"}),50);}
+  const op=q.get("open");if(op){const k=op.lastIndexOf("|"),id=op.slice(0,k),st=op.slice(k+1);const pi=P.findIndex(p=>p.id===id);if(pi>=0){const ki=P[pi].props.findIndex(x=>x.stat===st);if(ki>=0){setTab("props");openPlayer(pi,ki);}}}
+  if(q.toString())history.replaceState(null,"",location.pathname);})();
+</script>

@@ -52,13 +52,24 @@ jobs:
           cp cfb.json cfb_prev.json 2>/dev/null || true
           if python cfb_build.py --out cfb.json; then python assemble.py cfb; else echo "CFB build failed; keeping the last page"; cp cfb_prev.json cfb.json 2>/dev/null || true; fi
           rm -f cfb_prev.json
+      - name: "NHL (free: ESPN box scores and DraftKings lines)"
+        run: |
+          cp nhl.json nhl_prev.json 2>/dev/null || true
+          if python nhl_build.py --out nhl.json; then python assemble.py nhl; else echo "NHL build failed; keeping the last page"; cp nhl_prev.json nhl.json 2>/dev/null || true; fi
+          rm -f nhl_prev.json
+      - name: "College basketball (free: ESPN scores, rankings, DraftKings lines)"
+        run: |
+          cp cbb.json cbb_prev.json 2>/dev/null || true
+          if python cbb_build.py --out cbb.json; then python assemble.py cbb; else echo "CBB build failed; keeping the last page"; cp cbb_prev.json cbb.json 2>/dev/null || true; fi
+          rm -f cbb_prev.json
       - name: "Today page + track record (free: grades logged picks from box scores)"
         run: |
-          if python tracker.py --nfl data.json --nba nba.json --cfb cfb.json --history history.json --out today.json; then python assemble.py today; else echo "Tracker failed; keeping the last Today page"; fi
+          python assemble.py nfl; python assemble.py nba; python assemble.py cfb
+          if python tracker.py --nfl data.json --nba nba.json --cfb cfb.json --nhl nhl.json --cbb cbb.json --history history.json --out today.json; then python assemble.py today; else echo "Tracker failed; keeping the last Today page"; fi
       - run: |
           git config user.name "overlay-bot"
           git config user.email "overlay-bot@users.noreply.github.com"
-          git add data.json nfl.html nba.json nba.html cfb.json cfb.html cfb_box.json history.json today.json index.html
+          git add data.json nfl.html nba.json nba.html cfb.json cfb.html cfb_box.json nhl.json nhl.html nhl_box.json cbb.json cbb.html cbb_scores.json history.json today.json index.html
           git diff --cached --quiet || git commit -m "Refresh data"
           git pull --rebase -q || true
           git push

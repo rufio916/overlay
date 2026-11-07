@@ -170,6 +170,16 @@ def build(local=None, cache_path="nhl_box.json"):
     for gid, g in games:
         for aid, p in g["box"].items():
             logs[aid].append({"date": g["date"], "opp": g["away"] if p["team"] == g["home"] else g["home"], "home": p["team"] == g["home"], **p})
+    # league per-60 rates by position group, used to pull small early-season samples toward normal
+    grp = lambda pos: "D" if pos == "D" else "F"
+    tot = collections.defaultdict(lambda: collections.defaultdict(float))
+    for gid, g in games:
+        for p in g["box"].values():
+            if p["pos"] == "G": continue
+            k = grp(p["pos"]); tot[k]["toi"] += p["s"]["toi"]
+            for st_ in SKATER_STATS: tot[k][st_] += p["s"].get(st_, 0)
+    prior60 = {k: {st_: v[st_] / max(v["toi"], 1) * 60 for st_ in SKATER_STATS} for k, v in tot.items()}
+    PRIOR_MIN = 120  # about 6-8 games of ice time worth of league-average play
     book = {}
     for g in slate:
         if g["state"] != "pre": continue
@@ -198,7 +208,9 @@ def build(local=None, cache_path="nhl_box.json"):
                         fac = 1 + 0.5 * ((teams.get(opp, {}).get("sf", lg["sf"]) / lg["sf"]) - 1) if lg["sf"] else 1
                         proj = rate * fac
                     else:
-                        tw = [x["s"]["toi"] for x in L]; per60 = sum(v * wi for v, wi in zip(vals, w)) / max(sum(t * wi for t, wi in zip(tw, w)), 1) * 60
+                        tw = [x["s"]["toi"] for x in L]; wt = sum(t * wi for t, wi in zip(tw, w))
+                        pr60 = prior60.get(grp(L[-1]["pos"]), {}).get(stat, 0)
+                        per60 = (sum(v * wi for v, wi in zip(vals, w)) + pr60 * PRIOR_MIN / 60) / max(wt + PRIOR_MIN, 1) * 60
                         if stat == "Shots on Goal" or stat == "Blocked Shots":
                             base = teams.get(opp, {}).get("sa" if stat == "Shots on Goal" else "sf", lg["sf"])
                             fac = 1 + 0.5 * (base / lg["sf"] - 1) if lg["sf"] else 1
