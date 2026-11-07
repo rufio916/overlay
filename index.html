@@ -341,6 +341,17 @@ details.gsum[open]>summary .ghead::after{transform:rotate(90deg)}
 .tag{font-size:11px;color:var(--muted);font-family:var(--mono)}
 html{scroll-behavior:smooth}
 .panel{scroll-margin-top:80px}
+.panel.fold{padding:0}
+.fold>.fhead{all:unset;box-sizing:border-box;display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;cursor:pointer}
+.fold>.fhead:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:8px}
+.fold>.fhead h3{margin:0;font-size:17px}
+.fold>.fhead .fsum{display:block;font-size:12.5px;color:var(--muted);margin-top:3px;font-family:var(--body);text-transform:none;letter-spacing:0;font-weight:400}
+.fold>.fhead .fsum b{color:var(--fg);font-weight:600}
+.fold>.fhead .chev{flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--raised);color:var(--muted);transition:transform .15s}
+.fold.open>.fhead .chev{transform:rotate(180deg)}
+.fold>.fbody{padding:0 16px 16px}
+.fold:not(.open)>.fbody{display:none}
+.fold>.fbody>.fsub{font-size:12px;color:var(--muted);margin:-4px 0 8px}
 .quick{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 18px}
 .quick a{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 14px;text-decoration:none}
 .quick a:hover{border-color:var(--accent)}
@@ -356,7 +367,7 @@ html{scroll-behavior:smooth}
 <main class="wrap">
   <h2 id="ttitle">Today</h2>
   <p class="lede" id="tlede"></p>
-  <div class="quick"><a href="#nflpicks">NFL picks</a><a href="#nbapicks">NBA picks</a><a href="#record">Track record</a><a href="#mybets">My bets</a><a href="nfl.html?tab=pickem">Pick'em</a><a href="nfl.html?tab=fantasy">Fantasy</a></div>
+  <div class="quick"><a href="nfl.html?tab=pickem">Pick'em</a><a href="nfl.html?tab=fantasy">Fantasy</a><a href="#" id="openall">Open all</a></div>
   <div class="tgrid">
     <div class="tsec">
       <div class="panel" id="nflpicks"></div>
@@ -522,6 +533,38 @@ document.addEventListener("click",e=>{const d=e.target.closest("[data-delbet]");
     h+=`<details class="recent"${t==="NBA props"?" open":""}><summary>Recent ${t} ›</summary>${groups.map(g=>{const w=g.xs.filter(x=>x.result==="win").length,l=g.xs.filter(x=>x.result==="loss").length;
       return `<div class="dayhead" style="margin-top:8px;display:flex;justify-content:space-between"><span>${dlabel(g.d)}</span><span style="color:${w>l?"var(--pos)":w<l?"var(--neg)":"var(--muted)"}">${w}-${l}</span></div>${g.xs.map(x=>`<div class="legline">${mark(x)} ${f(x)}</div>`).join("")}`;}).join("")}</details>`;}
   $("#record").innerHTML=h;})();
-if(location.hash){const el=document.getElementById(location.hash.slice(1));if(el)el.scrollIntoView();}
+// ---------- collapsible sections: closed by default, each with a one-line summary; remembered per device ----------
+let OPEN={};try{OPEN=JSON.parse(localStorage.getItem("overlay-today-open")||"{}");}catch(e){}
+const saveOpen=()=>{try{localStorage.setItem("overlay-today-open",JSON.stringify(OPEN));}catch(e){}};
+const rec2=s=>s&&s.n?`${s.w}-${s.l}`:"0-0";
+function summaryFor(id){const T=D.track||{};
+  if(id==="nflpicks"){const G=(D.nflPicks||[]).filter(g=>g.picks.length||(g.close||[]).length);const days=[...new Set(G.map(g=>dayPT(g.kickoff)))].sort();const dd=days.includes(todayPT)?todayPT:days.find(d=>d>todayPT);
+    const S=G.filter(g=>dayPT(g.kickoff)===dd);const n=S.reduce((a,g)=>a+g.picks.length,0);const wk=(T.nfl&&T.nfl.top&&T.nfl.top.byWeek||{})[D.nflWeek];
+    if(!S.length)return D.nflLinesAt?"No picks above 54% for the next games":"Picks arrive with the Thursday and Saturday line pulls";
+    return `<b>${n} pick${n!==1?"s":""}</b> ${dd===todayPT?"today":"for "+new Date(dd+"T12:00").toLocaleDateString("en-US",{weekday:"long"})} · ${S.length} game${S.length>1?"s":""}${wk&&wk.n?` · Week ${D.nflWeek} so far ${wk.w}-${wk.l}`:""}`;}
+  if(id==="nbapicks"){const A=D.nbaPicks||[];const t=A.filter(x=>x.day===todayPT);const y=((T.recent||{}).nbaProps||[]).filter(x=>x.day&&x.day<todayPT);const yd=y.length?y[0].day:null;const yy=y.filter(x=>x.day===yd);
+    const w=yy.filter(x=>x.result==="win").length,l=yy.filter(x=>x.result==="loss").length;
+    return `${t.length?`<b>${t.length} pick${t.length>1?"s":""} today</b>`:"No picks yet today"}${yd?` · ${new Date(yd+"T12:00").toLocaleDateString("en-US",{weekday:"short"})} went <b>${w}-${l}</b>`:""}`;}
+  if(id==="cfbgames"){const A=(D.cfbGames||[]).filter(g=>g.day===todayPT);const top=A.filter(g=>g.home.rank||g.away.rank);const live=A.filter(g=>g.state==="in").length;
+    return `<b>${top.length} Top 25 game${top.length!==1?"s":""}</b> today${live?` · ${live} live`:""}`;}
+  if(id==="nbagames"){const t=D.nbaGames.filter(g=>g.day===todayPT);const le=t.reduce((a,g)=>a+(g.leans||[]).length,0);
+    return t.length?`<b>${t.length} game${t.length>1?"s":""}</b> today${le?` · ${le} lean${le>1?"s":""}`:""}`:"No games today";}
+  if(id==="record"){const parts=[["NFL props",T.nfl&&T.nfl.top],["NBA props",T.nbaProps],["NBA spreads",T.nba&&T.nba.spread],["CFB spreads",T.cfb&&T.cfb.spread]].filter(([,s])=>s&&s.n);
+    return parts.map(([k,s])=>`${k} <b>${rec2(s)}</b>`).join(" · ")||"Nothing graded yet";}
+  if(id==="mybets"){if(!BETS.length)return "Nothing saved yet";const p=BETS.filter(b=>!b.result).length,d=BETS.filter(b=>b.result&&b.result!=="void"),w=d.filter(b=>b.result==="win").length;
+    return `<b>${w}-${d.length-w}</b>${p?` · ${p} pending`:""}`;}
+  if(id==="news"){const n=D.injuryNews||{nfl:[],nba:[]};const k=n.nfl.length+n.nba.length;return k?`<b>${k} status change${k>1?"s":""}</b> in the last 3 days`:"No new status changes";}
+  return "";}
+function fold(id){const el=document.getElementById(id);if(!el||!el.firstElementChild)return;
+  const h=el.querySelector("h3");let title=id,sub="";if(h){const sp=h.querySelector(".sub");if(sp){sub=sp.innerHTML;sp.remove();}title=h.innerHTML;h.remove();}
+  const body=el.innerHTML;el.classList.add("fold");el.classList.toggle("open",!!OPEN[id]);
+  el.innerHTML=`<button class="fhead" aria-expanded="${!!OPEN[id]}"><span><h3>${title}</h3><span class="fsum">${summaryFor(id)}</span></span><span class="chev" aria-hidden="true">▾</span></button><div class="fbody">${sub?`<p class="fsub">${sub}</p>`:""}${body}</div>`;
+  el.querySelector(".fhead").onclick=()=>{OPEN[id]=!OPEN[id];saveOpen();el.classList.toggle("open",OPEN[id]);el.querySelector(".fhead").setAttribute("aria-expanded",OPEN[id]);};}
+const FOLDS=["nflpicks","nbapicks","cfbgames","nbagames","record","mybets","news"];
+FOLDS.forEach(fold);
+const _rb=renderBets;renderBets=function(){_rb();fold("mybets");};
+$("#openall").onclick=e=>{e.preventDefault();const all=FOLDS.every(id=>OPEN[id]);FOLDS.forEach(id=>{OPEN[id]=!all;const el=document.getElementById(id);if(el){el.classList.toggle("open",!all);el.querySelector(".fhead")?.setAttribute("aria-expanded",!all);}});saveOpen();$("#openall").textContent=all?"Open all":"Close all";};
+$("#openall").textContent=FOLDS.every(id=>OPEN[id])?"Close all":"Open all";
+if(location.hash){const id=location.hash.slice(1),el=document.getElementById(id);if(el){if(FOLDS.includes(id)&&!OPEN[id])el.querySelector(".fhead")?.click();el.scrollIntoView();}}
 </script>
 <script>if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).catch(()=>{});</script>
