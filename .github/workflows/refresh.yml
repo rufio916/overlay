@@ -58,7 +58,7 @@ jobs:
       - run: |
           git config user.name "overlay-bot"
           git config user.email "overlay-bot@users.noreply.github.com"
-          git add data.json nfl.html nba.json nba.html cfb.json cfb.html history.json today.json index.html
+          git add data.json nfl.html nba.json nba.html cfb.json cfb.html cfb_box.json history.json today.json index.html
           git diff --cached --quiet || git commit -m "Refresh data"
           git pull --rebase -q || true
           git push

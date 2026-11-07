@@ -70,7 +70,111 @@ def fit_points(G, fbs):
     return {t: b[ix[t]] for t in teams}, {t: b[n + ix[t]] for t in teams}, b[2 * n]
 
 
-def build(local=None):
+PROPS = [("Pass Yds", "passing", "YDS"), ("Pass TDs", "passing", "TD"), ("Completions", "passing", "C"),
+         ("Rush Yds", "rushing", "YDS"), ("Rec Yds", "receiving", "YDS"), ("Receptions", "receiving", "REC")]
+
+
+def box_from_summary(sm):
+    """{athlete_id: {name, team, img, stats{cat:{label:val}}}} from an ESPN summary."""
+    out = {}
+    for team in (sm.get("boxscore") or {}).get("players", []):
+        tid = (team.get("team") or {}).get("id")
+        for grp in team.get("statistics", []):
+            cat = grp.get("name"); lab = grp.get("labels") or []
+            if cat not in ("passing", "rushing", "receiving"): continue
+            for a in grp.get("athletes", []):
+                ath = a.get("athlete") or {}; st = a.get("stats") or []
+                if not ath.get("id") or not st: continue
+                v = {}
+                for k, x in zip(lab, st):
+                    if k == "C/ATT" and "/" in str(x):
+                        c, t = str(x).split("/"); v["C"], v["ATT"] = float(c or 0), float(t or 0)
+                    else:
+                        try: v[k] = float(str(x).replace(",", ""))
+                        except ValueError: pass
+                rec = out.setdefault(ath["id"], {"name": ath.get("displayName"), "team": tid, "img": (ath.get("headshot") or {}).get("href", ""), "stats": {}})
+                rec["stats"][cat] = v
+    return out
+
+
+def player_props(cur, games, teams, slate, local, cache_path):
+    """Season game logs for players on teams in this week's Top 25 games (free ESPN box scores, cached in cfb_box.json)."""
+    cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
+    want = {t for g in slate if g["state"] == "pre" and (g["home"]["rank"] or g["away"]["rank"]) for t in (g["home"]["id"], g["away"]["id"])}
+    need = [g for g in games if (g["h"] in want or g["a"] in want) and g["id"] not in cache]
+    for g in need[:400]:
+        try: cache[g["id"]] = box_from_summary(get_json(f"{SITE}/summary?event={g['id']}", local, f"summary_{g['id']}.json"))
+        except Exception as e: print("summary skipped", g["id"], e)
+    json.dump(cache, open(cache_path, "w"), separators=(",", ":"))
+    gmeta = {g["id"]: g for g in games}
+    # team allowed per game (pass / rush / rec yards etc.) from cached games
+    allowed = collections.defaultdict(lambda: collections.defaultdict(list))
+    logs = collections.defaultdict(list)
+    for gid, box in cache.items():
+        g = gmeta.get(gid)
+        if not g: continue
+        tot = collections.defaultdict(lambda: collections.defaultdict(float))
+        for aid, p in box.items():
+            for name, cat, lab in PROPS:
+                tot[p["team"]][name] += p["stats"].get(cat, {}).get(lab, 0)
+            if p["team"] in want:
+                opp = g["a"] if p["team"] == g["h"] else g["h"]
+                logs[aid].append({"w": g["w"], "date": g["date"], "opp": teams.get(opp, {}).get("abbr", "FCS"), "oppId": opp,
+                                  "home": None if g["neu"] else p["team"] == g["h"], "stats": p["stats"], "name": p["name"], "team": p["team"], "img": p["img"]})
+        for t in tot:
+            opp = g["a"] if t == g["h"] else g["h"]
+            if opp in want or True:
+                for name in tot[t]: allowed[opp][name].append(tot[t][name])
+    avg_allowed = {name: np.mean([np.mean(v[name]) for v in allowed.values() if v.get(name)]) for name, _, _ in PROPS}
+    opp_of = {}
+    for g in slate:
+        if g["state"] == "pre": opp_of[g["home"]["id"]] = (g, g["away"]["id"]); opp_of[g["away"]["id"]] = (g, g["home"]["id"])
+    players = []
+    for aid, L in logs.items():
+        L.sort(key=lambda x: x["date"]); team = L[-1]["team"]
+        if team not in opp_of: continue
+        last_w = max(x["w"] for g in games for x in [g] if team in (g["h"], g["a"]))
+        if L[-1]["w"] < last_w - 1: continue  # hasn't played in his team's last two games (hurt or benched)
+        g, opp = opp_of[team]
+        props = []
+        for name, cat, lab in PROPS:
+            vals = [x["stats"].get(cat, {}).get(lab) for x in L]
+            pts = [(x, v) for x, v in zip(L, vals) if v is not None]
+            if len(pts) < 3: continue
+            arr = np.array([v for _, v in pts], float)
+            wts = np.array([0.85 ** (len(arr) - 1 - i) for i in range(len(arr))])
+            base = float((arr * wts).sum() / wts.sum())
+            # volume filters so the list is the players PrizePicks actually posts
+            if (name.startswith("Pass") or name == "Completions") and np.mean([x["stats"].get("passing", {}).get("ATT", 0) for x, _ in pts]) < 15: continue
+            if name == "Rush Yds" and base < 35: continue
+            if name in ("Rec Yds", "Receptions") and (base < (30 if name == "Rec Yds" else 2.5)): continue
+            oa = allowed.get(opp, {}).get(name); fac = 1.0
+            if oa and avg_allowed.get(name):
+                fac = 1 + 0.5 * (np.mean(oa) / avg_allowed[name] - 1) * min(1, len(oa) / 6)
+            proj = base * max(.75, min(1.3, fac))
+            sd = max(float(np.std(arr, ddof=1)) if len(arr) > 2 else base * .4, base * .25, 1.0 if name in ("Pass TDs", "Receptions", "Completions") else 8)
+            props.append({"stat": name, "base": round(base, 1), "avg": round(float(arr.mean()), 1), "proj": round(proj, 1), "sd": round(sd, 1), "fac": round(fac, 2),
+                          "oppRank": None, "log": [{"w": x["w"], "opp": x["opp"], "home": x["home"], "v": v} for x, v in pts]})
+        if not props: continue
+        is_qb = any(p["stat"] == "Pass Yds" for p in props)
+        pos = "QB" if is_qb else ("RB" if any(p["stat"] == "Rush Yds" for p in props) and not any(p["stat"] == "Rec Yds" for p in props) else "WR/TE" if any(p["stat"] == "Rec Yds" for p in props) else "RB")
+        if any(p["stat"] == "Rush Yds" for p in props) and any(p["stat"] in ("Rec Yds", "Receptions") for p in props) and not is_qb: pos = "RB"
+        T, O = teams.get(team, {}), teams.get(opp, {})
+        players.append({"id": aid, "name": L[-1]["name"], "pos": pos, "team": T.get("abbr"), "teamId": team, "opp": O.get("abbr"), "oppId": opp,
+                        "home": None if g["neutral"] else g["home"]["id"] == team, "game": g["id"], "start": g["start"], "img": L[-1]["img"],
+                        "teamRank": T.get("rank"), "oppRank": O.get("rank"), "props": props})
+    # opponent rank for each stat: how much that defense allows (1 = allows the most)
+    for name, _, _ in PROPS:
+        tms = sorted([t for t in allowed if allowed[t].get(name)], key=lambda t: -np.mean(allowed[t][name]))
+        rk = {t: i + 1 for i, t in enumerate(tms)}
+        for p in players:
+            for pr in p["props"]:
+                if pr["stat"] == name: pr["oppRank"] = rk.get(p["oppId"]); pr["of"] = len(tms)
+    players.sort(key=lambda p: (p["start"], p["team"], -max(pr["proj"] for pr in p["props"])))
+    return players
+
+
+def build(local=None, cache_path="cfb_box.json"):
     cur = get_json(f"{SITE}/scoreboard?groups=80&limit=400", local, "sb_current.json")
     week = (cur.get("week") or {}).get("number") or 1
     season_type = (cur.get("season") or {}).get("type", 2)
@@ -153,15 +257,17 @@ def build(local=None):
         g["leans"] = leans
         slate.append(g)
     slate.sort(key=lambda g: (g["start"], -(min(g["home"]["rank"] or 99, g["away"]["rank"] or 99))))
+    try: players = player_props(cur, games, teams, slate, local, cache_path)
+    except Exception as e: print("CFB players skipped:", e); players = []
     finals = {g["id"]: [teams[g["a"]]["abbr"], teams[g["h"]]["abbr"], g["as"], g["hs"]] for g in games if g["w"] >= week - 1}
     return {"generated": datetime.now(timezone.utc).isoformat(timespec="minutes"), "week": week, "seasonType": season_type,
-            "hfa": round(float(hfa), 1), "games": slate, "teams": team_out, "finals": finals,
+            "hfa": round(float(hfa), 1), "games": slate, "teams": team_out, "players": players, "finals": finals,
             "note": "Overlay's numbers come from this season's scores only. In a backtest of weeks 4-9 they were about a coin flip against DraftKings, so treat leans as context."}
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--out", default="cfb.json"); ap.add_argument("--local")
     a = ap.parse_args()
-    d = build(a.local)
+    d = build(a.local, os.path.join(os.path.dirname(os.path.abspath(a.out)), "cfb_box.json"))
     json.dump(d, open(a.out, "w"), separators=(",", ":"))
-    print(f"CFB week {d['week']}: {len(d['games'])} games, {sum(len(g['leans']) for g in d['games'])} leans, {len(d['teams'])} FBS teams, HFA {d['hfa']}")
+    print(f"CFB week {d['week']}: {len(d['games'])} games, {sum(len(g['leans']) for g in d['games'])} leans, {len(d['teams'])} FBS teams, {len(d['players'])} players, HFA {d['hfa']}")
