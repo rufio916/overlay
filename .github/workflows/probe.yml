@@ -1,5 +1,7 @@
 name: probe (temporary)
 on: workflow_dispatch
+permissions:
+  contents: write
 jobs:
   probe:
     runs-on: ubuntu-latest
@@ -11,5 +13,5 @@ jobs:
           curl -sS "$S/scoreboard?groups=80&limit=400" > sb_current.json
           curl -sS "$S/rankings" > rankings.json
           ls -la
-      - uses: actions/upload-artifact@v4
-        with: {name: cfb, path: cfb}
+          git init -q && git checkout -q -b cfbraw && git add -A && git -c user.name=bot -c user.email=bot@x commit -qm raw
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" cfbraw
