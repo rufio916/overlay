@@ -1,0 +1,22 @@
+name: probe (temporary)
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          python3 - <<'PY'
+          import json, urllib.request
+          get = lambda u: json.loads(urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"}), timeout=30).read())
+          sb = get("https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=400")
+          pre = [e for e in sb["events"] if e["competitions"][0]["status"]["type"]["state"] == "pre"]
+          big = sorted(pre, key=lambda e: min((c.get("curatedRank") or {}).get("current", 99) for c in e["competitions"][0]["competitors"]))[:4]
+          for e in big:
+              gid = e["id"]; base = f"https://sports.core.api.espn.com/v2/sports/football/leagues/college-football/events/{gid}/competitions/{gid}/odds"
+              od = get(base + "?lang=en&region=us")
+              provs = [(i["provider"]["id"], i["provider"]["name"]) for i in od.get("items", [])]
+              print(e["name"], provs)
+              for pid, _ in provs + [("100", ""), ("58", ""), ("1004", ""), ("2000", "")]:
+                  try: d = get(f"{base}/{pid}/propBets?lang=en&region=us&limit=5"); print("  ", pid, d.get("count"))
+                  except Exception as x: print("  ", pid, "err", str(x)[:60])
+          PY
