@@ -179,7 +179,7 @@ def build(local=None, cache_path="nhl_box.json"):
             k = grp(p["pos"]); tot[k]["toi"] += p["s"]["toi"]
             for st_ in SKATER_STATS: tot[k][st_] += p["s"].get(st_, 0)
     prior60 = {k: {st_: v[st_] / max(v["toi"], 1) * 60 for st_ in SKATER_STATS} for k, v in tot.items()}
-    PRIOR_MIN = 120  # about 6-8 games of ice time worth of league-average play
+    PRIOR_MIN = 40   # about two games of league-average play, just enough to steady very small samples
     book = {}
     for g in slate:
         if g["state"] != "pre": continue
