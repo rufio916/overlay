@@ -61,6 +61,15 @@ html{scroll-behavior:smooth}
 .gtabs button .n{font-family:var(--mono);font-weight:500;opacity:.75;margin-left:4px}
 .gpane[hidden]{display:none}
 .gpane>.pnote{font-size:12px;color:var(--muted);margin:0 0 6px}
+.rrow{border-top:1px solid var(--line);padding:8px 0}
+.rrow:first-of-type{border-top:0}
+.rname{font-weight:600;margin-bottom:4px}
+.rcells{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.rcell{background:var(--raised);border-radius:6px;padding:6px 8px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.rlab{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.rval{font-size:12.5px;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.rdot{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;font-size:11px;font-weight:700;background:var(--raised);color:var(--muted)}
+.rdot.ok{background:var(--pos-soft);color:var(--pos)}.rdot.bad{background:var(--neg-soft);color:var(--neg)}
 .quick{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 18px}
 .quick a{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 14px;text-decoration:none}
 .quick a:hover{border-color:var(--accent)}
@@ -264,8 +273,15 @@ document.addEventListener("click",e=>{const d=e.target.closest("[data-delbet]");
   const tiles=(a,b,c)=>`<div class="rec">${[a,b,c].map(([k,v,col])=>`<div><span>${k}</span><b${col?` style="color:${col}"`:""}>${v}</b></div>`).join("")}</div>`;
   const tone=(s,be)=>s&&s.n>=10?(s.pct>=be?"var(--pos)":"var(--neg)"):"";
   const mark=x=>`<i class="${x.result}">${x.result==="win"?"✓":x.result==="loss"?"✗":"–"}</i>`;
+  // ready check: three tests per market, pass / fail / progress
+  const RD=T.ready||[];
+  const cell=(name,t,fmt)=>{const st=t.status;return `<div class="rcell"><span class="rlab">${name}</span><span class="rval"><span class="rdot ${st==="pass"?"ok":st==="fail"?"bad":""}">${st==="pass"?"✓":st==="fail"?"✗":"…"}</span> ${fmt}</span>${st==="not yet"?`<span class="tag">${Math.min(t.n,t.need)}/${t.need} picks</span>`:""}</div>`;};
+  const readyHtml=RD.length?`<div class="sec">Ready check · good enough to build an app around?</div>`+RD.map(r=>`<div class="rrow"><div class="rname">${esc(r.label)}${r.verdict==="ready"?' <span class="res win">ready</span>':r.verdict==="promising"?' <span class="res push">promising</span>':""}</div><div class="rcells">
+    ${cell("Line moves",r.clv,r.clv.share!=null?pct(r.clv.share)+" our way":"–")}${cell("Calibration",r.cal,r.cal.expected!=null?`said ${pct(r.cal.expected)}, hit ${pct(r.cal.actual)}`:"–")}${cell("Results",r.win,r.win.value==null?"–":r.win.kind==="units"?`${r.win.value>=0?"+":""}${r.win.value} units`:`${pct(r.win.value)} (need ${pct(r.win.breakeven)})`)}</div></div>`).join("")
+    +`<p class="sub">✓ pass · ✗ fail · … needs more picks. Passing means lines move our way on 55%+ of picks, the percentages land within 4 points of reality, and results beat break-even. A market is ready when all three pass.</p>`:"";
   const clvTxt=c=>c&&c.n?`<p class="sub" style="margin:2px 0 0" title="How the line moved between when Overlay picked it and the start. Getting better numbers than the final line is the earliest sign a system works.">Line moved <b style="color:var(--pos)">our way on ${c.toward}</b>, against us on ${c.away}, no change on ${c.same} (${c.n} graded picks).</p>`:"";
   let h=`<h3 id="record-h">Overlay's track record <span class="sub">Every pick is logged before the game starts and graded after</span></h3>`;
+  h+=readyHtml;
   h+=`<div class="sec">NFL player props · Overlay's picks (best 3 per game)</div>`+tiles(["Record",rec(top)],["Hit rate",p(top),tone(top,.542)],["Pending",top.pending||0]);
   h+=clvTxt(top.clv);
   if(top.byWeek)h+=`<p class="sub">${Object.entries(top.byWeek).filter(([,s])=>s.n).map(([w,s])=>`Wk ${w}: ${s.w}-${s.l}`).join(" · ")} · Needs 54%+ to profit on a 6-pick Flex.</p>`;

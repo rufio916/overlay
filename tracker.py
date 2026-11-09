@@ -188,6 +188,46 @@ def clv(L):
     return {"n": len(m), "toward": sum(x == 1 for x in m), "away": sum(x == -1 for x in m), "same": sum(x == 0 for x in m)}
 
 
+# ---------------- "Ready check": is a market good enough to build an app around? ----------------
+READY_CLV_N, READY_CAL_N, READY_WIN_N = 200, 100, 300
+
+
+def ready_row(label, L, breakeven):
+    """Three tests: line movement (earliest), calibration, results. Each is pass / fail / not yet (with progress)."""
+    g = [p for p in L if p.get("result") in ("win", "loss")]
+    out = {"label": label, "n": len(g)}
+    # 1. line movement: did the market move toward our side before the start?
+    if breakeven is None:
+        m = [1 if p["closeFair"] > p["fair"] + .005 else -1 if p["closeFair"] < p["fair"] - .005 else 0 for p in g if p.get("closeFair") is not None]
+    else:
+        m = [x for x in (moved(p) for p in g) if x is not None]
+    moving = [x for x in m if x]
+    share = sum(x == 1 for x in moving) / len(moving) if moving else None
+    out["clv"] = {"n": len(m), "need": READY_CLV_N, "share": round(share, 3) if share is not None else None,
+                  "status": "not yet" if len(m) < READY_CLV_N else ("pass" if share is not None and share >= .55 else "fail")}
+    # 2. calibration: do 60% picks hit about 60%?
+    c = [p for p in g if p.get("chance") is not None] if breakeven is not None else [p for p in g if p.get("fair") is not None]
+    if c:
+        exp = sum((p["chance"] if breakeven is not None else p["fair"]) for p in c) / len(c)
+        act = sum(p["result"] == "win" for p in c) / len(c)
+        gap = act - exp
+    else: exp = act = gap = None
+    out["cal"] = {"n": len(c), "need": READY_CAL_N, "expected": round(exp, 3) if exp is not None else None, "actual": round(act, 3) if act is not None else None,
+                  "status": "not yet" if len(c) < READY_CAL_N else ("pass" if abs(gap) <= .04 else "fail")}
+    # 3. results: above break-even (props) or making money (sportsbook edges)
+    if breakeven is None:
+        units = sum(p.get("units", 0) for p in L if p.get("result") in ("win", "loss", "push"))
+        out["win"] = {"n": len(g), "need": READY_WIN_N, "value": round(units, 2), "kind": "units",
+                      "status": "not yet" if len(g) < READY_WIN_N else ("pass" if units > 0 else "fail")}
+    else:
+        pct = sum(p["result"] == "win" for p in g) / len(g) if g else None
+        out["win"] = {"n": len(g), "need": READY_WIN_N, "value": round(pct, 3) if pct is not None else None, "kind": "pct", "breakeven": breakeven,
+                      "status": "not yet" if len(g) < READY_WIN_N else ("pass" if pct >= breakeven else "fail")}
+    passed = sum(out[k]["status"] == "pass" for k in ("clv", "cal", "win"))
+    out["verdict"] = "ready" if passed == 3 else "promising" if passed >= 1 and not any(out[k]["status"] == "fail" for k in ("clv", "cal", "win")) else "not yet"
+    return out
+
+
 def nba_picks(nba):
     """Overlay's NBA prop picks: where its projection disagrees most with the DraftKings line.
     chance = Overlay's estimate for the side it picks; mkt = DraftKings' no-vig chance for that side."""
@@ -481,6 +521,8 @@ def run(a):
              "nba": {"spread": summary([p for p in nbap if p["type"] == "spread"]), "total": summary([p for p in nbap if p["type"] == "total"]),
                      "pending": sum(p.get("result") is None for p in nbap)},
              "recent": recent, "since": min((p["logged"] for p in picks.values()), default=None)}
+    track["ready"] = [ready_row("NFL props", top, .542), ready_row("NBA props", nbaprops, .542), ready_row("NHL props", nhlprops, .542),
+                      ready_row("NFL sportsbook edges", evp, None)]
 
     # ---------- 5. Today page data ----------
     upcoming = [r for r in nfl_rows if datetime.fromisoformat(r["kickoff"]) > t_now]
