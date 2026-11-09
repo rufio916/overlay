@@ -209,6 +209,11 @@ def run(a):
     hist = load_json(a.history, {"picks": {}, "injurySnap": {}, "injuryNews": []})
     picks = hist["picks"]; t_now = now()
 
+    # picks logged before chances were blended: switch them to the blended number (model kept separately)
+    for p in picks.values():
+        if p["sport"] in ("nba", "nhl") and p.get("type") == "prop" and p.get("result") is None and "model" not in p and p.get("mkt") is not None:
+            p["model"] = p["chance"]; p["chance"] = round(BLEND * p["model"] + (1 - BLEND) * p["mkt"], 4)
+
     # remember where each pending pick started, so we can tell later whether the line moved our way
     def snap(p): return {"line": p.get("line"), "chance": p.get("mkt", p.get("chance")), "odds": p.get("odds"), "at": p.get("logged")}
     firsts = {k: (p.get("first") or snap(p)) for k, p in picks.items() if p.get("result") is None}
@@ -268,7 +273,7 @@ def run(a):
         if k not in picks:
             if sum(p["sport"] == "nhl" and p.get("day") == day for p in picks.values()) >= NHL_PROPS_PER_DAY: continue
             if any(p["sport"] == "nhl" and p.get("id") == r["id"] and str(p["game"]) == str(g["id"]) for p in picks.values()): continue
-        picks[k] = {"sport": "nhl", "type": "prop", "game": g["id"], "day": day, "away": g["away"], "home": g["home"], **{x: r[x] for x in ("name", "id", "team", "opp", "stat", "line", "side", "odds", "proj", "chance", "mkt")},
+        picks[k] = {"sport": "nhl", "type": "prop", "game": g["id"], "day": day, "away": g["away"], "home": g["home"], **{x: r[x] for x in ("name", "id", "team", "opp", "stat", "line", "side", "odds", "proj", "chance", "model", "mkt")},
                     "kickoff": g["start"], "logged": iso(t_now), "result": None}
 
     starts = {str(g["id"]): g for g in nba_games}
@@ -282,7 +287,7 @@ def run(a):
             if any(p["sport"] == "nba" and p.get("type") == "prop" and p.get("id") == r["id"] and str(p["game"]) == str(g["id"]) for p in picks.values()): continue  # one stat per player
         picks[k] = {"sport": "nba", "type": "prop", "game": g["id"], "day": day, "away": g["away"], "home": g["home"], "name": r["name"], "id": r["id"],
                     "team": r["team"], "opp": r["opp"], "stat": r["stat"], "line": r["line"], "side": r["side"], "odds": r["odds"], "proj": r["proj"],
-                    "chance": r["chance"], "mkt": r["mkt"], "kickoff": g["start"], "logged": iso(t_now), "result": None}
+                    "chance": r["chance"], "model": r["model"], "mkt": r["mkt"], "kickoff": g["start"], "logged": iso(t_now), "result": None}
 
     for k, p in picks.items():
         if p.get("result") is None and "line" in p and p["sport"] in ("nfl", "nba", "nhl"):
