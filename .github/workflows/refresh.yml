@@ -3,7 +3,7 @@ on:
   schedule:
     - cron: "17 0 * * *"     # every day ~5:17pm Pacific: stats + injury reports (free, no odds credits)
     - cron: "17 15 * * 4"    # Thursday ~7:17am Pacific (GitHub often runs these hours late): PrizePicks + sportsbook lines before TNF (~55 credits)
-    - cron: "17 15 * * 6"    # Saturday ~7:17am Pacific: PrizePicks + sportsbook lines for Sun/Mon (~50 credits)
+    - cron: "17 11 * * 0"    # Sunday ~3:17am Pacific (lands before kickoff even if GitHub runs it hours late): lines for Sun/Mon with the latest injury news (~55 credits)
     - cron: "37 17 * * *"    # every day ~10:37am Pacific: NBA lines (posted the morning of each game) + free NFL refresh
   workflow_dispatch:           # "Run workflow" button for a manual refresh
     inputs:
@@ -32,7 +32,7 @@ jobs:
           WANT_ODDS: ${{ github.event.inputs.odds }}
         run: |
           FETCH=0
-          if [ "$EVENT" = "schedule" ] && { [ "$CRON" = "17 15 * * 4" ] || [ "$CRON" = "17 15 * * 6" ]; }; then FETCH=1; fi
+          if [ "$EVENT" = "schedule" ] && { [ "$CRON" = "17 15 * * 4" ] || [ "$CRON" = "17 11 * * 0" ]; }; then FETCH=1; fi
           if [ "$EVENT" = "workflow_dispatch" ] && [ "$WANT_ODDS" = "true" ]; then FETCH=1; fi
           # one-off skips to stay inside the monthly credits (UTC dates); remove dates once they pass
           for d in 2026-10-15; do if [ "$EVENT" = "schedule" ] && [ "$(date -u +%F)" = "$d" ]; then FETCH=0; echo "odds skipped for $d"; fi; done

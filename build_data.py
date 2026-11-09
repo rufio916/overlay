@@ -207,6 +207,8 @@ def build(week=None, local_dir=None):
         games_out.append(e)
 
     odds = odds_block(wk, players)
+    try: game_ev(odds.get("lines") or [], games_out)
+    except Exception as ex: print("game EV skipped:", ex, file=sys.stderr)
     _o = odds.get("odds") or {}
     _last = _o.get("fetched") or _o.get("fetchedLast") or ""
     if _o.get("status") != "ok" and _last and _last[:7] != datetime.now(timezone.utc).strftime("%Y-%m"):
@@ -494,11 +496,60 @@ def _credits_left_guess():
         return None
 
 
+def game_ev(lines, games_out):
+    """For each game: the fair chance of every side (Pinnacle's no-vig price, or the books' consensus if Pinnacle is missing),
+    the best price available, and any bet whose price beats fair by 2.5%+ (expected value per $1)."""
+    imp = lambda o: (-o) / (-o + 100) if o < 0 else 100 / (o + 100)
+    dec = lambda o: 1 + (100 / -o if o < 0 else o / 100)
+    by = {}
+    for l in lines:
+        if l.get("player") is None and l.get("price") is not None: by.setdefault(l["game"], []).append(l)
+    full = {v: k for k, v in TEAM_FULL.items()}
+    for e in games_out:
+        L = by.get(e["id"], []); e["ev"] = []; e["best"] = []
+        if not L: continue
+        for mkt in ("h2h", "spreads", "totals"):
+            M = [l for l in L if l["market"] == mkt]
+            # pairs at the same number: spreads keyed by the home team's point, totals by the total
+            groups, pts = {}, {}
+            for l in M:
+                if mkt == "spreads": k = l["line"] if full.get(l["side"]) == e["home"] else -l["line"] if l["line"] is not None else None
+                elif mkt == "totals": k = l["line"]
+                else: k = 0
+                groups.setdefault(k, {}).setdefault(l["book"], {})[l["side"]] = l["price"]
+                pts.setdefault((k, l["side"]), l["line"])
+            for k, books in groups.items():
+                two = {b: o for b, o in books.items() if len(o) == 2}
+                if not two: continue
+                sides = sorted({s for o in two.values() for s in o})
+                fair_src = "Pinnacle" if "pinnacle" in two else f"{len(two)}-book average"
+                if "pinnacle" not in two and len(two) < 4: continue  # not enough books to trust a fair price
+                def fair_of(side):
+                    if "pinnacle" in two:
+                        o = two["pinnacle"]; a, b = imp(o[side]), imp([o[x] for x in o if x != side][0]); return a / (a + b)
+                    vals = []
+                    for o in two.values():
+                        a, b = imp(o[side]), imp([o[x] for x in o if x != side][0]); vals.append(a / (a + b))
+                    vals.sort(); return vals[len(vals) // 2]
+                for side in sides:
+                    f = fair_of(side)
+                    offers = [(b, o[side]) for b, o in books.items() if side in o and b != "pinnacle"]
+                    if not offers: continue
+                    bb, bp = max(offers, key=lambda x: dec(x[1]))
+                    label = (full.get(side, side) if mkt != "totals" else side)
+                    pt = None if mkt == "h2h" else pts.get((k, side))
+                    row = {"market": {"h2h": "Moneyline", "spreads": "Spread", "totals": "Total"}[mkt], "side": label, "point": pt, "book": bb, "price": bp,
+                           "fair": round(f, 4), "fairOdds": round(-100 * f / (1 - f)) if f >= .5 else round(100 * (1 - f) / f), "ev": round(f * dec(bp) - 1, 4), "src": fair_src}
+                    e["best"].append(row)
+                    if row["ev"] >= 0.025 and f >= .2: e["ev"].append(row)
+        e["ev"].sort(key=lambda r: -r["ev"])
+
+
 def odds_block(wk, players):
     if os.environ.get("ODDS_API_KEY"):
         left = _credits_left_guess()
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        cost = CREDITS_PER_GAME * int((wk.gameday >= today).sum())  # games already played aren't pulled
+        cost = CREDITS_PER_GAME * int((wk.gameday >= today).sum()) + 3  # games already played aren't pulled; +3 for all game lines
         print(f"odds pull estimate: ~{cost} credits; credits left: {left if left is not None else 'unknown (new month)'}", file=sys.stderr)
         if left is not None and left < cost + 2:
             print(f"only {left} odds credits left; keeping last lines until the monthly reset", file=sys.stderr)
@@ -548,6 +599,16 @@ def fetch_lines(wk, players):
     markets = sorted({m for p in players for pr in p["props"] for m in [pr["market"]]})
     books = ",".join(SHARP_BOOKS + DFS_BOOKS)
     lines = []
+    try:  # game lines for every game in one call: moneyline + spread + total = 3 credits total
+        for ev in _get(f"{base}/odds?apiKey={key}&bookmakers={','.join(SHARP_BOOKS)}&markets=h2h,spreads,totals&oddsFormat=american") or []:
+            gid = want.get((ev["away_team"], ev["home_team"]))
+            if not gid: continue
+            for bk in ev.get("bookmakers", []):
+                for m in bk["markets"]:
+                    for o in m["outcomes"]:
+                        lines.append({"game": gid, "book": bk["key"], "market": m["key"], "player": None, "side": o["name"], "line": o.get("point"), "price": o.get("price")})
+    except Exception as e:
+        ODDS_STATUS["errors"].append(f"game lines: {e}"[:200])
     for ev in events:
         gid = want.get((ev["away_team"], ev["home_team"]))
         if not gid: continue

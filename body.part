@@ -224,7 +224,7 @@ ul.why li{line-height:1.45}
     <details class="info"><summary>How to read this</summary>
       <p><b>Hit chance</b> is how likely the sportsbooks think the pick is to hit: a blend of up to 7 books (Pinnacle, FanDuel, DraftKings, BetMGM, ESPN Bet, BetRivers, Bovada) with their fee removed, counting the sharpest books most. "Books 73.5" under a line means the sportsbooks' average line is at least a point away from PrizePicks, which is usually where the value is. It's <b>green</b> when it beats what your slip type needs to break even, about 54% for a 6-pick Flex. "adj" means the book's line was a little different from PrizePicks, so Overlay adjusted it.</p>
       <p><b>Our proj</b> is Overlay's own rough estimate from a handful of games. It's a lean, not a price. When it disagrees with the hit chance, trust the hit chance.</p>
-      <p><b>▲ / ▼ under a line or hit chance</b> shows how it moved since the previous odds pull (Thursday → Saturday). Lines that move usually follow injury news or sharp money.</p>
+      <p><b>▲ / ▼ under a line or hit chance</b> shows how it moved since the previous odds pull (Thursday → Sunday). Lines that move usually follow injury news or sharp money.</p>
       <p><b>Matchup</b> grades how much this defense allows to the position: A allows the most, F the least. Hover or open the player for the numbers.</p>
       <p><b>Usage</b> is the last two games' pass attempts, carries or targets for that stat. ▲ or ▼ means a change of more than 15% from earlier games.</p>
 </details>
@@ -290,6 +290,12 @@ const NAMES={ARI:"Arizona",ATL:"Atlanta",BAL:"Baltimore",BUF:"Buffalo",CAR:"Caro
 const $=s=>document.querySelector(s);
 const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const GAME=Object.fromEntries(D.games.map(g=>[g.id,g]));
+const BOOKN={fanduel:"FanDuel",draftkings:"DraftKings",betmgm:"BetMGM",espnbet:"ESPN BET",betrivers:"BetRivers",bovada:"Bovada",pinnacle:"Pinnacle"};
+function bestPrices(g){const B=g.best||[];if(!B.length)return"";const ev=new Set((g.ev||[]).map(r=>r.market+r.side+r.point));
+  return `<div class="panel" style="margin-top:12px"><h3>Best prices <span class="sub" style="font-family:var(--body);text-transform:none;letter-spacing:0;font-weight:400">· vs the fair price (Pinnacle, fee removed)</span></h3><div class="tablebox"><table class="mini"><thead><tr><th>Bet</th><th>Best</th><th>Book</th><th>Fair</th><th>Edge</th></tr></thead><tbody>
+    ${B.map(r=>{const fo=r.fair>=.5?Math.round(-100*r.fair/(1-r.fair)):Math.round(100*(1-r.fair)/r.fair);const hot=ev.has(r.market+r.side+r.point);
+      return `<tr${hot?' style="background:var(--pos-soft)"':""}><td>${esc(r.side)} ${r.market==="Moneyline"?"ML":r.market==="Spread"?(r.point>0?"+":"")+r.point:r.point}</td><td>${fmtOdds(r.price)}</td><td>${BOOKN[r.book]||esc(r.book)}</td><td>${fmtOdds(fo)}</td><td style="color:${r.ev>=.025?"var(--pos)":r.ev<0?"var(--muted)":"var(--fg)"}">${r.ev>=0?"+":""}${(r.ev*100).toFixed(1)}%</td></tr>`;}).join("")}</tbody></table></div>
+    <p class="sub">Green rows beat fair by 2.5%+ and are tracked on the Today page. Prices as of the last line pull.</p></div>`;}
 const ESPNNFL={LA:"lar",WAS:"wsh"};
 const logo=(t,s=22)=>t?`<img class="logo" src="https://a.espncdn.com/i/teamlogos/nfl/500/${ESPNNFL[t]||t.toLowerCase()}.png" alt="" width="${s}" height="${s}" loading="lazy" onerror="this.remove()">`:"";
 const hs=(p,size="")=>p&&p.img?`<img class="hs ${size}" src="${esc(p.img)}" alt="" loading="lazy" onerror="this.remove()">`:"";
@@ -320,6 +326,12 @@ const BOOKW={pinnacle:3,fanduel:1.5,draftkings:1.5,betmgm:1,espnbet:1,betrivers:
 const DFS=["prizepicks","underdog","pick6"];
 function sdFor(pr){const k=pr.stat==="Receptions"?.42:pr.stat==="Pass Yds"?.24:.5;
   return Math.max(Math.sqrt(.5*pr.sd*pr.sd+.5*Math.pow(k*Math.max(pr.proj,1),2)),pr.stat==="Receptions"?1:5);}
+// moving a book's chance from its line to PrizePicks' line: receptions are small counts (Poisson);
+// low yardage lines (backups, change-of-pace backs) are lumpy, so they get a wider spread than a bell curve would
+function poisOver(m,ln){let c=0,t=Math.exp(-m);for(let i=0;i<=Math.floor(ln);i++){if(i)t*=m/i;c+=t;}return 1-c;}
+function shiftOver(stat,bookLine,fair,line,sd){if(Math.abs(bookLine-line)<1e-9)return fair;
+  if(stat==="Receptions"){let lo=.01,hi=20;for(let i=0;i<50;i++){const m=(lo+hi)/2;poisOver(m,bookLine)>fair?hi=m:lo=m;}return poisOver((lo+hi)/2,line);}
+  const s=bookLine<30?Math.max(sd,.65*bookLine):sd;return 1-cdf((line-(bookLine+s*zinv(fair)))/s);}
 function zinv(p){let lo=-8,hi=8;for(let i=0;i<60;i++){const m=(lo+hi)/2;if(cdf(m)<p)lo=m;else hi=m;}return(lo+hi)/2;}
 // every sportsbook's two-sided line for this prop: no-vig over chance at its own line
 function bookLines(p,pr,M=LINES){const ls=M[norm(p.name)+"|"+pr.market];if(!ls)return[];const out=[];
@@ -331,7 +343,7 @@ function marketChance(p,pr,line,side,M=LINES){const all=bookLines(p,pr,M);if(!al
   const sd=sdFor(pr),lim=Math.max(3,.12*line);let wsum=0,psum=0;const used=[];
   for(const b of SHARP){const opts=all.filter(x=>x.book===b);if(!opts.length)continue;
     const x=opts.reduce((m,o)=>Math.abs(o.line-line)<Math.abs(m.line-line)?o:m);const d=Math.abs(x.line-line);if(d>lim)continue;
-    const over=d<1e-9?x.fair:1-cdf((line-(x.line+sd*zinv(x.fair)))/sd);const w=BOOKW[b]||1;wsum+=w;psum+=w*over;used.push({...x,adjOver:over});}
+    const over=shiftOver(pr.stat,x.line,x.fair,line,sd);const w=BOOKW[b]||1;wsum+=w;psum+=w*over;used.push({...x,adjOver:over});}
   if(!wsum)return null;const over=psum/wsum;
   const avg=used.reduce((s,x)=>s+x.line,0)/used.length;
   return{p:side==="More"?over:1-over,n:used.length,books:used,adjusted:used.some(x=>Math.abs(x.line-line)>1e-9),avgLine:Math.round(avg*2)/2,
@@ -387,7 +399,7 @@ function renderMatch(){
   const nf=["pos","mkt","gm","grd"].filter(k=>state[k]).length+(state.wonly?1:0)+(state.q?1:0)+(state.moved?1:0);
   $("#ftoggle").textContent=nf?`Filters (${nf})`:"Filters";
   const cols=L?11:9;
-  if(!list.length){const msg=state.wonly&&!state.watch.length?"Your watchlist is empty. Tap the star next to any player to add him.":state.moved&&!HAS_PREV?"Line movement shows after the second odds pull of the week (Saturday).":"No players match these filters. Clear a filter to see more.";
+  if(!list.length){const msg=state.wonly&&!state.watch.length?"Your watchlist is empty. Tap the star next to any player to add him.":state.moved&&!HAS_PREV?"Line movement shows after the second odds pull of the week (Sunday morning).":"No players match these filters. Clear a filter to see more.";
     $("#matchbody").innerHTML=`<tr><td colspan="${cols}" class="empty">${msg}</td></tr>`;$("#matchcards").innerHTML=`<div class="panel empty">${msg}</div>`;return;}
   const edgeTxt=r=>r.e!=null?`<span class="edge ${r.e>0?"hot":"cold"}" title="Consensus of ${r.price.n} sportsbook${r.price.n>1?"s":""}: ${(r.win*100).toFixed(1)}%${r.price.adjusted?", adjusted to this line":""}. Your slip needs ${(state.be*100).toFixed(1)}%.">${(r.win*100).toFixed(0)}%</span>${r.price.adjusted?'<span class="sub"> adj</span>':""}`:'<span class="sub">–</span>';
   const playTxt=r=>r.side?`<span class="pick ${r.side==="More"?"more":"less"}">${r.side}</span>`:'<span class="sub">Books not posted</span>';
@@ -692,6 +704,7 @@ function renderGames(){
   $("#gamedetail").innerHTML=`<h2>${logo(g.away,34)} ${NAMES[g.away]} at ${logo(g.home,34)} ${NAMES[g.home]}</h2>
     <div class="sub">${kick(g)}${g.spread!=null?" · "+spreadTxt(g):""}${g.total?" · O/U "+g.total:""}${g.wx?` · Kickoff forecast: ${g.wx.temp}°F, wind ${g.wx.wind} mph${g.wx.gust>=g.wx.wind+8?` (gusts ${g.wx.gust})`:""}, ${g.wx.snow?"snow":g.wx.rain+"% rain"}`:g.roof==="dome"||g.roof==="closed"?" · Indoors":""}</div>
     ${g.wx&&g.wx.flag?`<p class="sub" style="margin:4px 0 0"><b style="color:var(--warn)">Weather to watch:</b> strong wind and heavy rain or snow tend to cut passing and kicking and help unders. Books usually adjust totals, but PrizePicks passing and kicking lines are often slower.</p>`:""}
+    ${bestPrices(g)}
     ${nflTeamBreakdown(g)}
     <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:8px;margin-top:14px"><h3 style="font-family:var(--display);text-transform:uppercase;font-size:22px;margin:0">Players in this game</h3>
       <button class="btn" id="gameprops" data-game="${g.id}">See these props on the Props tab ›</button></div>
@@ -898,7 +911,7 @@ const injWeek=Math.max(0,...Object.values(D.injuries).flat().map(x=>x.week));
 $("#freshness").textContent=`Stats thru Wk ${D.statsThrough}`;$("#freshness").style.color="var(--muted)";$("#freshness").style.background="var(--raised)";
 $("#matchtitle").textContent=`Week ${D.week} props`;
 const oddsAt=D.odds&&D.odds.fetched?new Date(D.odds.fetched).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit"}):null;
-$("#linesbanner").innerHTML=HAS_LINES?`<b>PrizePicks lines as of ${oddsAt||"the last refresh"}.</b> Green hit chance = beats your slip's <span id="bepct">${(state.be*100).toFixed(0)}%</span> break-even. New lines arrive Thursday and Saturday mornings; double-check any line in the app before you play it.`:
+$("#linesbanner").innerHTML=HAS_LINES?`<b>PrizePicks lines as of ${oddsAt||"the last refresh"}.</b> Green hit chance = beats your slip's <span id="bepct">${(state.be*100).toFixed(0)}%</span> break-even. New lines arrive Thursday and Sunday mornings; double-check any line in the app before you play it.`:
  `<b>Live PrizePicks lines aren't connected yet.</b> Open a player and type in the line from the app to check it.${injWeek<D.week?` Injury statuses are from the Week ${injWeek} report until Week ${D.week} reports come out midweek.`:""}`;
 $("#sliplabel").hidden=!HAS_LINES;
 if(D.odds&&D.odds.remaining!=null)$("#credits").textContent=`Odds credits left: ${D.odds.remaining}.`;

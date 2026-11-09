@@ -64,6 +64,28 @@ def nfl_sd(pr):
     return max(math.sqrt(.5 * pr["sd"] ** 2 + .5 * (k * max(pr["proj"], 1)) ** 2), 1 if pr["stat"] == "Receptions" else 5)
 
 
+def pois_over(m, ln):
+    c, t = 0.0, math.exp(-m)
+    for i in range(int(math.floor(ln)) + 1):
+        if i: t *= m / i
+        c += t
+    return 1 - c
+
+
+def shift_over(stat, book_line, fair, line, sd):
+    """Move a book's no-vig chance from its line to PrizePicks' line (same rules as the NFL page)."""
+    if abs(book_line - line) < 1e-9: return fair
+    if stat == "Receptions":
+        lo, hi = .01, 20
+        for _ in range(50):
+            m = (lo + hi) / 2
+            if pois_over(m, book_line) > fair: hi = m
+            else: lo = m
+        return pois_over((lo + hi) / 2, line)
+    s = max(sd, .65 * book_line) if book_line < 30 else sd
+    return 1 - cdf((line - (book_line + s * zinv(fair))) / s)
+
+
 def nfl_lines_index(lines):
     idx = {}
     for l in lines:
@@ -86,7 +108,7 @@ def nfl_price(p, pr, idx):
         ln, o = min(two, key=lambda x: abs(x[0] - line))
         if abs(ln - line) > lim: continue
         a, c = imp(o["Over"]), imp(o["Under"]); fair = a / (a + c)
-        over = fair if abs(ln - line) < 1e-9 else 1 - cdf((line - (ln + sd * zinv(fair))) / sd)
+        over = shift_over(pr["stat"], ln, fair, line, sd)
         w = BOOKW.get(b, 1); wsum += w; psum += w * over; n += 1
     if not wsum: return {"line": line, "fair": None, "n": 0}
     return {"line": line, "fair": psum / wsum, "n": n}
@@ -231,7 +253,7 @@ def run(a):
             pc = nfl_price(p, pr, idx) if idx else None
             row = {"sport": "nfl", "name": p["name"], "team": p["team"], "opp": p["opp"], "pos": p["pos"], "stat": pr["stat"], "proj": pr["proj"],
                    "avg": pr["avg"], "game": g["id"], "week": nfl.get("week"), "kickoff": iso(ko), "img": p.get("img", ""), "status": p.get("status", "")}
-            if pc and pc["fair"] is not None:
+            if pc and pc["fair"] is not None and pc["n"] >= 2:
                 side = "More" if pc["fair"] >= .5 else "Less"; ch = max(pc["fair"], 1 - pc["fair"])
                 row.update({"line": pc["line"], "side": side, "chance": round(ch, 4), "books": pc["n"]})
                 if ch >= BREAK_EVEN and ko > t_now and fetched and p.get("status") not in ("Out", "Doubtful"):
@@ -239,6 +261,19 @@ def run(a):
                     if k not in picks or picks[k].get("result") is None and datetime.fromisoformat(picks[k]["kickoff"]) > t_now:
                         picks[k] = {**{x: row[x] for x in ("sport", "name", "team", "opp", "stat", "line", "side", "chance", "game", "week", "kickoff")}, "logged": iso(t_now), "result": None}
             nfl_rows.append(row)
+    for g in nfl.get("games", []):
+        ko = nfl_kickoff(g)
+        if ko <= t_now: continue
+        now_fair = {(r["market"], r["side"], r.get("point")): r for r in g.get("best", [])}
+        for r in g.get("ev", []):
+            k = f"nflev|{g['id']}|{r['market']}|{r['side']}|{r.get('point')}"
+            if k not in picks:
+                picks[k] = {"sport": "nflev", "game": g["id"], "away": g["away"], "home": g["home"], "week": nfl.get("week"), **{x: r[x] for x in ("market", "side", "point", "book", "price", "fair", "ev", "src")},
+                            "kickoff": iso(ko), "logged": iso(t_now), "result": None}
+        for k, pk in picks.items():
+            if pk["sport"] == "nflev" and pk["game"] == g["id"] and pk.get("result") is None:
+                r = now_fair.get((pk["market"], pk["side"], pk.get("point")))
+                if r: pk["closeFair"] = r["fair"]
     nba_games = nba.get("games", [])
     for g in nba_games:
         start = datetime.fromisoformat(g["start"].replace("Z", "+00:00"))
@@ -306,6 +341,17 @@ def run(a):
             if row.empty: pk["result"] = "void"; continue
             v = float(row.iloc[0][NFL_COL[pk["stat"]]] or 0); pk["actual"] = v
             pk["result"] = "push" if v == pk["line"] else ("win" if (v > pk["line"]) == (pk["side"] == "More") else "loss")
+        dec = lambda o: 1 + (100 / -o if o < 0 else o / 100)
+        for k, pk in picks.items():
+            if pk["sport"] != "nflev" or pk.get("result") is not None or pk["game"] not in final_nfl: continue
+            r = final_nfl[pk["game"]]; hs_, as_ = int(r.home_score), int(r.away_score)
+            mine = hs_ - as_ if pk["side"] == pk["home"] else as_ - hs_
+            if pk["market"] == "Moneyline": x = mine
+            elif pk["market"] == "Spread": x = mine + pk["point"]
+            else: x = (hs_ + as_ - pk["point"]) * (1 if pk["side"] == "Over" else -1)
+            pk["final"] = f"{pk['away']} {as_} · {pk['home']} {hs_}"
+            pk["result"] = "push" if x == 0 else ("win" if x > 0 else "loss")
+            pk["units"] = round(dec(pk["price"]) - 1, 3) if pk["result"] == "win" else -1.0 if pk["result"] == "loss" else 0.0
     except Exception as e:
         print("NFL grading skipped:", e, file=sys.stderr); st = None; final_nfl = {}
     try:
@@ -406,9 +452,11 @@ def run(a):
     nbaprops = [p for p in picks.values() if p["sport"] == "nba" and p.get("type") == "prop"]
     nhlprops = [p for p in picks.values() if p["sport"] == "nhl"]
     cbbp = [p for p in picks.values() if p["sport"] == "cbb"]
+    evp = [p for p in picks.values() if p["sport"] == "nflev"]
+    evg = [p for p in evp if p.get("result") in ("win", "loss", "push")]
     cfbp = [p for p in picks.values() if p["sport"] == "cfb"]
     graded = sorted([p for p in picks.values() if p.get("result") in ("win", "loss", "push")], key=lambda p: p["kickoff"], reverse=True)
-    recent = {"nflProps": [p for p in graded if p["sport"] == "nfl"][:15], "nbaProps": [p for p in graded if p["sport"] == "nba" and p.get("type") == "prop"][:24],
+    recent = {"nflProps": [p for p in graded if p["sport"] == "nfl"][:15], "nflEv": [p for p in graded if p["sport"] == "nflev"][:15], "nbaProps": [p for p in graded if p["sport"] == "nba" and p.get("type") == "prop"][:24],
               "nhlProps": [p for p in graded if p["sport"] == "nhl"][:24], "cbb": [p for p in graded if p["sport"] == "cbb"][:15],
               "nbaTeams": [p for p in graded if p["sport"] == "nba" and p.get("type") != "prop"][:15],
               "cfb": [p for p in graded if p["sport"] == "cfb"][:15]}
@@ -423,6 +471,10 @@ def run(a):
              "nhlProps": {**summary(nhlprops), "clv": clv(nhlprops), "pending": sum(p.get("result") is None for p in nhlprops),
                           "ours": round(sum(p["chance"] for p in nhlprops if p.get("result") in ("win", "loss")) / max(1, summary(nhlprops)["n"]), 3),
                           "mkt": round(sum(p["mkt"] for p in nhlprops if p.get("result") in ("win", "loss")) / max(1, summary(nhlprops)["n"]), 3)},
+             "nflEv": {**summary(evp), "pending": sum(p.get("result") is None for p in evp), "units": round(sum(p.get("units", 0) for p in evg), 2),
+                       "roi": round(sum(p.get("units", 0) for p in evg) / len(evg), 3) if evg else None,
+                       "clv": {"n": sum(1 for p in evg if p.get("closeFair") is not None), "toward": sum(1 for p in evg if p.get("closeFair") is not None and p["closeFair"] > p["fair"] + .005),
+                               "away": sum(1 for p in evg if p.get("closeFair") is not None and p["closeFair"] < p["fair"] - .005)}},
              "cbb": {"spread": summary([p for p in cbbp if p["type"] == "spread"]), "total": summary([p for p in cbbp if p["type"] == "total"]), "pending": sum(p.get("result") is None for p in cbbp)},
              "cfb": {"spread": summary([p for p in cfbp if p["type"] == "spread"]), "total": summary([p for p in cfbp if p["type"] == "total"]),
                      "pending": sum(p.get("result") is None for p in cfbp)},
@@ -503,7 +555,7 @@ def run(a):
         nfl_games_out.append({"id": g["id"], "away": g["away"], "home": g["home"], "kickoff": iso(nfl_kickoff(g)), "spread": g.get("spread"), "total": g.get("total"), "pH": round(pH, 3) if pH else None})
     imgs = {p["id"]: p.get("img", "") for p in nba.get("players", [])}
     nimgs = {p["id"]: p.get("img", "") for p in nhl.get("players", [])}
-    today = {"generated": iso(t_now), "nflWeek": nfl.get("week"), "nflLinesAt": fetched, "nflTop": nfl_top, "nflPicks": nfl_picks, "nflGames": nfl_games_out,
+    today = {"generated": iso(t_now), "nflWeek": nfl.get("week"), "nflLinesAt": fetched, "nflEv": sorted([p for p in picks.values() if p["sport"] == "nflev" and p.get("week") == nfl.get("week")], key=lambda p: p["kickoff"]), "nflTop": nfl_top, "nflPicks": nfl_picks, "nflGames": nfl_games_out,
              "nbaGames": nba_day_games, "nbaTop": nba_top, "cfbWeek": cfb.get("week"), "cfbGames": [{x: g[x] for x in ("id", "start", "day", "state", "detail", "neutral", "tv", "pH", "odds", "leans", "model", "scoreH", "scoreA") if x in g}
                  | {"home": {k: g["home"][k] for k in ("abbr", "name", "rank", "logo", "rec")}, "away": {k: g["away"][k] for k in ("abbr", "name", "rank", "logo", "rec")}}
                  for g in cfb.get("games", []) if g["home"].get("rank") or g["away"].get("rank") or g.get("leans")],
