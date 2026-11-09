@@ -11,6 +11,8 @@ import warnings; warnings.filterwarnings("ignore")
 import argparse, io, json, os, sys, urllib.request, urllib.error
 from datetime import datetime, timezone
 import pandas as pd
+from zoneinfo import ZoneInfo
+import weather
 
 SEASON = 2026
 NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
@@ -197,6 +199,11 @@ def build(week=None, local_dir=None):
             e["impHome"] = round(e["total"] / 2 + e["spread"] / 2, 1); e["impAway"] = round(e["total"] / 2 - e["spread"] / 2, 1)
         e["qbAway"], e["qbHome"] = (g.away_qb_name if isinstance(g.away_qb_name, str) else None), (g.home_qb_name if isinstance(g.home_qb_name, str) else None)
         e["qbAwayLast"], e["qbHomeLast"] = last_qb(g.away_team), last_qb(g.home_team)
+        if not LOCAL_DIR and e["roof"] in ("outdoors", "open") and g.location != "Neutral" and g.home_team in weather.NFL_STADIUMS and isinstance(g.gametime, str):
+            try:  # kickoff weather (free, Open-Meteo); gametime is Eastern
+                ko = datetime.strptime(f"{g.gameday} {g.gametime}", "%Y-%m-%d %H:%M").replace(tzinfo=ZoneInfo("America/New_York"))
+                e["wx"] = weather.forecast(*weather.NFL_STADIUMS[g.home_team], ko.astimezone(timezone.utc).isoformat())
+            except Exception as ex: print("weather skipped", g.game_id, ex)
         games_out.append(e)
 
     odds = odds_block(wk, players)

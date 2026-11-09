@@ -46,6 +46,15 @@ input[type=search]{width:190px}
 /* heatmap */
 .heat td.h{font-family:var(--mono);text-align:center;font-weight:600;min-width:72px}
 .heat th.sortable{cursor:pointer}
+.ppbox{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.ppbox input{width:74px;font:inherit;font-family:var(--mono);font-size:13px;padding:5px 7px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);text-align:right}
+.ppbox input:focus{border-color:var(--accent);outline:none}
+.ppres{display:inline-flex;gap:4px;align-items:center}
+.ppline{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+#ppmine{margin:0 0 14px}
+.mrow{all:unset;box-sizing:border-box;cursor:pointer;display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.mrow:hover b{text-decoration:underline}
+.linkbtn2{all:unset;cursor:pointer;color:var(--accent);font-size:12px;text-transform:none;letter-spacing:0}
 .heat.fit{min-width:0}
 .posseg{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
 .posseg button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:6px 14px;cursor:pointer}
@@ -482,7 +491,7 @@ function drawSheet(){
    <div style="overflow-x:auto"><table class="mini"><thead><tr><th>Game</th>${usageHead}</tr></thead><tbody>${usageRows}</tbody></table></div>
    ${splitHtml?`<div class="sec">Teammates out</div>${splitHtml}`:""}
    <div class="sec">Game environment</div>
-   <div class="envrow">${impPts!=null?`<span class="flag">${p.team} implied ${impPts} pts</span>`:""}<span class="flag">${spreadTxt(G)||"No line"}</span>${G.total?`<span class="flag">O/U ${G.total}</span>`:""}${G.roof?`<span class="flag">${G.roof==="dome"||G.roof==="closed"?"Indoors":G.roof==="outdoors"?"Outdoors":esc(G.roof)}</span>`:""}${G.wind!=null&&G.wind>=15?`<span class="flag warn">Wind ${G.wind} mph</span>`:""}${(p.team===G.home?G.restHome:G.restAway)<=5?`<span class="flag warn">Short rest</span>`:""}${qbChange?`<span class="flag warn">QB change: ${esc(qbNow)} expected</span>`:""}</div>
+   <div class="envrow">${impPts!=null?`<span class="flag">${p.team} implied ${impPts} pts</span>`:""}<span class="flag">${spreadTxt(G)||"No line"}</span>${G.total?`<span class="flag">O/U ${G.total}</span>`:""}${G.roof?`<span class="flag">${G.roof==="dome"||G.roof==="closed"?"Indoors":G.roof==="outdoors"?"Outdoors":esc(G.roof)}</span>`:""}${G.wx&&G.wx.flag?`<span class="flag warn" title="Kickoff forecast">${esc(G.wx.flag)}</span>`:G.wind!=null&&G.wind>=15?`<span class="flag warn">Wind ${G.wind} mph</span>`:""}${(p.team===G.home?G.restHome:G.restAway)<=5?`<span class="flag warn">Short rest</span>`:""}${qbChange?`<span class="flag warn">QB change: ${esc(qbNow)} expected</span>`:""}</div>
    <div class="sec">${esc(pr.stat)} allowed by ${NAMES[p.opp]} to ${p.pos}s, by game</div>
    ${bars(d.last,lg,"League avg "+lg,"Defense allowed by week")}
    <details class="inj"><summary>Injury reports · ${p.team} (${(D.injuries[p.team]||[]).length}) · ${p.opp} (${(D.injuries[p.opp]||[]).length}) ›</summary>
@@ -673,7 +682,7 @@ function renderGames(){
     return `<button class="game" aria-pressed="${state.game===g.id}" data-g="${g.id}">
       <div class="matchup">${logo(g.away)} ${g.away} @ ${logo(g.home)} ${g.home}</div>
       <div class="meta"><span>${kick(g)}</span>${g.spread!=null?`<span>${spreadTxt(g)}</span>`:""}${g.total?`<span>O/U ${g.total}</span>`:""}</div>
-      <div class="envrow">${all.length?`<span class="chip inj">${all.length} on report${outs?` · ${outs} out`:""}</span>`:'<span class="chip g-C">No one on report</span>'}${qbc?'<span class="flag warn">QB change</span>':""}${g.restAway<=5||g.restHome<=5?'<span class="flag">Short week</span>':""}</div></button>`;}).join("");
+      <div class="envrow">${g.wx&&g.wx.flag?`<span class="chip inj" title="Kickoff forecast">${esc(g.wx.flag)}</span>`:""}${all.length?`<span class="chip inj">${all.length} on report${outs?` · ${outs} out`:""}</span>`:'<span class="chip g-C">No one on report</span>'}${qbc?'<span class="flag warn">QB change</span>':""}${g.restAway<=5||g.restHome<=5?'<span class="flag">Short week</span>':""}</div></button>`;}).join("");
   const g=GAME[state.game];if(!g){$("#gamedetail").innerHTML="";return;}
   const tracked=D.players.map((p,pi)=>({p,pi})).filter(o=>o.p.game===g.id);
   const playerRow=({p,pi})=>{const best=p.props.map((x,k)=>({k,d:D.defense[p.opp][p.pos+"|"+x.stat]})).filter(o=>o.d).sort((a,b)=>b.d.rank-a.d.rank)[0];
@@ -681,7 +690,8 @@ function renderGames(){
     return `<div class="injrow"><div><button class="linkbtn" data-pi="${pi}" data-ki="${best.k}">${esc(p.name)}</button><div class="sub">${p.pos} · ${p.team} · best: ${esc(p.props[best.k].stat)}</div></div><span class="chip g-${gr}">${gr}</span></div>`;};
   const env=k=>{const t=g[k.toLowerCase()],qb=g["qb"+k],last=g["qb"+k+"Last"];return `<div class="injrow"><div><div class="pname">${NAMES[t]}</div><div class="sub">QB: ${esc(qb||"–")}${qb&&last&&norm(qb)!==norm(last)?` (replacing ${esc(last)})`:""} · ${g["rest"+k]} days rest</div></div><span class="flag">${g["imp"+k]??"–"} pts</span></div>`;};
   $("#gamedetail").innerHTML=`<h2>${logo(g.away,34)} ${NAMES[g.away]} at ${logo(g.home,34)} ${NAMES[g.home]}</h2>
-    <div class="sub">${kick(g)}${g.spread!=null?" · "+spreadTxt(g):""}${g.total?" · O/U "+g.total:""}</div>
+    <div class="sub">${kick(g)}${g.spread!=null?" · "+spreadTxt(g):""}${g.total?" · O/U "+g.total:""}${g.wx?` · Kickoff forecast: ${g.wx.temp}°F, wind ${g.wx.wind} mph${g.wx.gust>=g.wx.wind+8?` (gusts ${g.wx.gust})`:""}, ${g.wx.snow?"snow":g.wx.rain+"% rain"}`:g.roof==="dome"||g.roof==="closed"?" · Indoors":""}</div>
+    ${g.wx&&g.wx.flag?`<p class="sub" style="margin:4px 0 0"><b style="color:var(--warn)">Weather to watch:</b> strong wind and heavy rain or snow tend to cut passing and kicking and help unders. Books usually adjust totals, but PrizePicks passing and kicking lines are often slower.</p>`:""}
     ${nflTeamBreakdown(g)}
     <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:8px;margin-top:14px"><h3 style="font-family:var(--display);text-transform:uppercase;font-size:22px;margin:0">Players in this game</h3>
       <button class="btn" id="gameprops" data-game="${g.id}">See these props on the Props tab ›</button></div>

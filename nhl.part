@@ -1,6 +1,13 @@
 <style>
 .flt{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 14px}
 .flt select,.flt input{font:inherit;padding:7px 10px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+.statrow2{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid var(--line);padding:8px 0}
+.statrow2:first-child{border-top:0}
+.statrow2 .sname{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-width:0}
+.statrow2 .sname:hover b{text-decoration:underline}
+.statrow2 .sname:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.statrow2 .up{color:var(--pos);font-weight:600}.statrow2 .dn{color:var(--neg);font-weight:600}
+.ppbox{flex-direction:column;align-items:flex-end;gap:4px}
 .statrow{display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;text-align:left;background:none;border:0;border-top:1px solid var(--line);font:inherit;color:inherit;cursor:pointer;padding:9px 0}
 .statrow:first-child{border-top:0}
 .statrow .r{display:flex;gap:8px;align-items:center;flex-shrink:0}
@@ -32,8 +39,9 @@
   </section>
   <section id="props" hidden>
     <h2>Player props</h2>
-    <div class="banner"><b>Lines are DraftKings', pulled free twice a day.</b> Overlay's chance comes from each player's shots, points and ice time this season, adjusted for the opponent. PrizePicks usually sits close to these lines; type theirs in to check it.</div>
+    <div class="banner"><b>Type the PrizePicks line in any row</b> to see the side Overlay likes and its chance to hit. The chance blends DraftKings' odds (pulled free twice a day) with Overlay's projection from his shots, points and ice time. Your lines collect below, best first.</div>
     <div class="flt"><select id="pgame" aria-label="Game"><option value="">All games</option></select><select id="pstat" aria-label="Stat"><option value="">All stats</option><option>Shots on Goal</option><option>Points</option><option>Assists</option><option>Saves</option><option>Blocked Shots</option><option>Goals</option></select><input id="psearch" type="search" placeholder="Find a player" aria-label="Find a player"></div>
+    <div class="panel" id="ppmine" hidden></div>
     <div id="plist" class="plist"></div>
   </section>
 </main>
@@ -93,21 +101,39 @@ function detail(g){const H=D.teams[g.home]||{},A=D.teams[g.away]||{},o=g.odds;
 const pois=(lam,line)=>{lam=Math.max(lam,.01);let c=0,t=Math.exp(-lam);for(let i=0;i<=Math.floor(line);i++){if(i)t*=lam/i;c+=t;}return 1-c;};
 [...new Set(P.map(p=>p.game))].forEach(id=>{const g=GAME[id];if(g)$("#pgame").insertAdjacentHTML("beforeend",`<option value="${id}">${g.away} @ ${g.home}</option>`);});
 $("#pgame").onchange=$("#pstat").onchange=$("#psearch").oninput=renderProps;
-function best(pr){if(pr.line==null||pr.ours==null)return null;const more=pr.ours>=pr.pOver;return{side:more?"More":"Less",ch:more?pr.ours:1-pr.ours,mk:more?pr.pOver:1-pr.pOver};}
+// books' chance at any line: find the average DraftKings' odds imply (Poisson), then read off the new line
+function mktOver(pr,line){if(pr.line==null||pr.pOver==null)return null;let lo=0.01,hi=60;for(let i=0;i<50;i++){const m=(lo+hi)/2;(pois(m,pr.line)>pr.pOver)?hi=m:lo=m;}return pois((lo+hi)/2,line);}
+// Overlay's chance = half our model, half the books (the model alone ran overconfident)
+function overAt(pr,line){const mo=pois(pr.proj,line),mk=mktOver(pr,line);return mk==null?mo:.5*mo+.5*mk;}
+function sideAt(pr,line){const o=overAt(pr,line);return o>=.5?{side:"More",ch:o}:{side:"Less",ch:1-o};}
+function best(pr){if(pr.line==null)return null;const b=sideAt(pr,pr.line);b.mk=b.side==="More"?pr.pOver:1-pr.pOver;return b;}
+let PPL={};try{PPL=JSON.parse(localStorage.getItem("overlay-nhl-pp")||"{}");}catch(e){}
+const savePPL=()=>{try{localStorage.setItem("overlay-nhl-pp",JSON.stringify(PPL));}catch(e){}};
+const ppChip=b=>`<span class="pick ${b.side==="More"?"more":"less"}">${b.side}</span> <span class="edge ${b.ch>=BE?"hot":"cold"}">${pct(b.ch)}</span>`;
+function renderMine(){const el=$("#ppmine");const rows=[];P.forEach((p,i)=>p.props.forEach((pr,k)=>{const ln=PPL[p.id+"|"+pr.stat];if(ln!=null)rows.push({p,i,pr,k,ln,b:sideAt(pr,ln)});}));
+  if(!rows.length){el.hidden=true;return;}rows.sort((a,b)=>b.b.ch-a.b.ch);el.hidden=false;
+  el.innerHTML=`<div class="dayhead" style="display:flex;justify-content:space-between"><span>Your PrizePicks lines, best first</span><button class="linkbtn2" id="ppclear">Clear all</button></div>`+rows.map(r=>`<button class="mrow" data-pi="${r.i}" data-ki="${r.k}"><span><b>${esc(r.p.name)}</b> <span class="sub">${r.p.team} · ${r.b.side} ${r.ln} ${esc(r.pr.stat)}${r.pr.line!=null&&r.pr.line!==r.ln?` · DK ${r.pr.line}`:""}</span></span><span class="edge ${r.b.ch>=BE?"hot":"cold"}">${pct(r.b.ch)}</span></button>`).join("")
+    +`<p class="sub" style="margin:6px 0 0">Green = 54% or better. When PrizePicks' line differs from DraftKings', the books' odds do most of the work here.</p>`;
+  $("#ppclear").onclick=()=>{PPL={};savePPL();renderProps();};}
 function renderProps(){const gf=$("#pgame").value,sf=$("#pstat").value,q=$("#psearch").value.trim().toLowerCase();
   const L=P.map((p,i)=>[p,i]).filter(([p])=>(!gf||p.game===gf)&&(!sf||p.props.some(x=>x.stat===sf))&&(!q||p.name.toLowerCase().includes(q))).slice(0,120);
   $("#plist").innerHTML=L.length?L.map(([p,i])=>`<div class="panel" style="padding:12px 14px"><div class="who">${hs(p)}<div><div class="pname">${esc(p.name)}</div><div class="sub">${p.pos} · ${p.team} ${p.home?"vs":"@"} ${p.opp} · ${when(p.start)} · ${p.toi} min a game</div></div></div>
-    <div style="margin-top:8px">${p.props.filter(x=>!sf||x.stat===sf).map(pr=>{const k=p.props.indexOf(pr);const b=best(pr);
-      return `<button class="statrow" data-pi="${i}" data-ki="${k}"><span><b>${esc(pr.stat)}</b><div class="sub">${pr.line!=null?`DK ${pr.line} · `:""}avg ${pr.avg} · our proj ${pr.proj}</div></span><span class="r">${b?`<span class="pick ${b.side==="More"?"more":"less"}">${b.side}</span><span class="edge ${b.ch>=BE?"hot":"cold"}">${pct(b.ch)}</span>`:`<span class="sub">no line</span>`}<span class="sub" aria-hidden="true">›</span></span></button>`;}).join("")}</div></div>`).join("")
-    :'<div class="panel"><p class="sub">No players match. Lines show up once DraftKings posts them, usually by the morning refresh.</p></div>';}
+    <div style="margin-top:6px">${p.props.filter(x=>!sf||x.stat===sf).map(pr=>{const k=p.props.indexOf(pr);const b=best(pr);const key=p.id+"|"+pr.stat,ln=PPL[key];
+      return `<div class="statrow2"><button class="sname" data-pi="${i}" data-ki="${k}"><b>${esc(pr.stat)}</b><span class="sub">${pr.line!=null?`DK ${pr.line} ${b?`<span class="${b.side==="More"?"up":"dn"}">${b.side} ${pct(b.ch)}</span>`:""} · `:""}avg ${pr.avg} · proj ${pr.proj}</span></button>
+        <span class="ppbox"><input type="number" inputmode="decimal" step="0.5" min="0" placeholder="Line" aria-label="PrizePicks line for ${esc(p.name)} ${esc(pr.stat)}" data-pp="${esc(key)}" data-pi="${i}" data-ki="${k}" value="${ln??""}"><span class="ppres" data-res="${esc(key)}">${ln!=null?ppChip(sideAt(pr,ln)):""}</span></span></div>`;}).join("")}</div></div>`).join("")
+    :'<div class="panel"><p class="sub">No players match. Lines show up once DraftKings posts them, usually by the morning refresh.</p></div>';
+  renderMine();}
+document.addEventListener("input",e=>{const inp=e.target.closest("input[data-pp]");if(!inp)return;const v=parseFloat(inp.value);const pr=P[+inp.dataset.pi].props[+inp.dataset.ki];
+  if(isNaN(v))delete PPL[inp.dataset.pp];else PPL[inp.dataset.pp]=v;savePPL();
+  document.querySelectorAll(`[data-res="${CSS.escape(inp.dataset.pp)}"]`).forEach(x=>x.innerHTML=isNaN(v)?"":ppChip(sideAt(pr,v)));clearTimeout(renderMine.t);renderMine.t=setTimeout(renderMine,400);});
 let cur=null;
 function bars(L,line){const W=460,H=150,pad={l:28,r:8,t:14,b:36};const n=Math.max(L.length,1);const max=Math.max(...L.map(v=>v.v),line||0,1)*1.25;
   const y=v=>pad.t+(H-pad.t-pad.b)*(1-v/max);const bw=(W-pad.l-pad.r)/n;
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Game log">${L.map((v,k)=>`<rect x="${pad.l+k*bw+bw*.22}" y="${y(v.v)}" width="${bw*.56}" height="${Math.max(0,y(0)-y(v.v))}" rx="2" fill="${v.v>line?"var(--pos)":"var(--line)"}"/><text x="${pad.l+k*bw+bw/2}" y="${y(v.v)-4}" text-anchor="middle">${v.v}</text><text x="${pad.l+k*bw+bw/2}" y="${H-20}" text-anchor="middle">${esc(v.d)}</text><text x="${pad.l+k*bw+bw/2}" y="${H-6}" text-anchor="middle" style="fill:var(--fg)">${v.home?"":"@"}${esc(v.opp)}</text>`).join("")}
   <line x1="${pad.l}" x2="${W-pad.r}" y1="${y(line)}" y2="${y(line)}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4"/></svg><div class="sub"><span style="color:var(--accent)">- - -</span> Line ${line}</div>`;}
-function hitsHtml(pr){const hit=v=>cur.side==="More"?v.v>cur.line:v.v<cur.line;const l5=pr.log.slice(-5);const pm=pois(pr.proj,cur.line);const est=cur.side==="More"?pm:1-pm;
-  return `<div><span>Last 5</span><b>${l5.filter(hit).length}/${l5.length}</b></div><div><span>Last 10</span><b>${pr.log.filter(hit).length}/${pr.log.length}</b></div><div><span>Est. chance</span><b style="color:${est>=BE?"var(--pos)":"var(--fg)"}">${Math.round(est*100)}%</b></div>`;}
-function openPlayer(pi,ki){const pr=P[pi].props[ki];const b=best(pr);cur={pi,ki,side:b?b.side:"More",line:pr.line??Math.max(.5,Math.round(pr.proj)-.5)};drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;}
+function hitsHtml(pr){const hit=v=>cur.side==="More"?v.v>cur.line:v.v<cur.line;const l5=pr.log.slice(-5);const o=overAt(pr,cur.line),mk=mktOver(pr,cur.line);const est=cur.side==="More"?o:1-o;
+  return `<div><span>Last 5</span><b>${l5.filter(hit).length}/${l5.length}</b></div><div><span>Last 10</span><b>${pr.log.filter(hit).length}/${pr.log.length}</b></div>${mk!=null?`<div><span>Books</span><b>${pct(cur.side==="More"?mk:1-mk)}</b></div>`:""}<div><span>Overlay</span><b style="color:${est>=BE?"var(--pos)":"var(--fg)"}">${Math.round(est*100)}%</b></div>`;}
+function openPlayer(pi,ki){const pr=P[pi].props[ki];const ln=PPL[P[pi].id+"|"+pr.stat];const L0=ln??pr.line??Math.max(.5,Math.round(pr.proj)-.5);cur={pi,ki,side:sideAt(pr,L0).side,line:L0};drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;}
 const ord=n=>n+(n%100>=11&&n%100<=13?"th":({1:"st",2:"nd",3:"rd"}[n%10]||"th"));
 const mostOf=(r,n=32)=>{const m=n+1-r;return m===1?"the most":`the ${ord(m)}-most`;};
 function drawSheet(){const p=P[cur.pi],pr=p.props[cur.ki];const O=D.teams[p.opp]||{},lg=D.league;
@@ -125,7 +151,7 @@ function drawSheet(){const p=P[cur.pi],pr=p.props[cur.ki];const O=D.teams[p.opp]
   document.querySelectorAll("#sheet .seg button").forEach(b=>b.onclick=()=>{cur.side=b.dataset.side;document.querySelectorAll("#sheet .seg button").forEach(x=>x.setAttribute("aria-pressed",x===b));$("#hitsbox").innerHTML=hitsHtml(pr);});}
 function closeSheet(){$("#sheet").hidden=true;$("#scrim").hidden=true;cur=null;}
 $("#scrim").onclick=closeSheet;document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet();});
-document.addEventListener("click",e=>{const b=e.target.closest("[data-pi]");if(b){openPlayer(+b.dataset.pi,+b.dataset.ki);return;}
+document.addEventListener("click",e=>{const b=e.target.closest("button[data-pi]");if(b){openPlayer(+b.dataset.pi,+b.dataset.ki);return;}
   const g=e.target.closest(".game");if(g){state.game=state.game===g.dataset.g?null:g.dataset.g;save();renderGames();if(state.game)setTimeout(()=>$("#gd")?.scrollIntoView({behavior:"smooth",block:"start"}),30);return;}
   const pg=e.target.closest("[data-props]");if(pg){$("#pgame").value=pg.dataset.props;setTab("props");renderProps();window.scrollTo(0,0);}});
 const TABS=["games","props"];

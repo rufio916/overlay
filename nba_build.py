@@ -265,6 +265,18 @@ def build(local=None, espn_dir=None):
             if len(rec) < 5:  # very early: fall back to last season's rotation for names on this roster
                 rec = pd.concat([rec, pri.groupby("athlete_display_name").minutes.mean()]).groupby(level=0).first().sort_values(ascending=False)
             game_pace = ((teams.get(team, {}).get("pace") or lg_pace) + (teams.get(opp, {}).get("pace") or lg_pace)) / 2
+            # Vegas: the team's implied points tonight vs its usual scoring
+            o = g.get("odds") or {}; implied = None
+            if o.get("total") is not None and o.get("spreadH") is not None:
+                implied = o["total"] / 2 - o["spreadH"] / 2 if home else o["total"] / 2 + o["spreadH"] / 2
+            usual = teams.get(team, {}).get("ppg")
+            tf = min(1.10, max(0.92, (implied / usual) ** 0.5)) if implied and usual else None
+            # injuries: regulars ruled out who played in the team's last three games leave shots and touches behind
+            last3 = sorted(cur.game_date.unique())[-3:]
+            outs = [r for r in injuries.get(team, []) if r["status"] == "Out" and r.get("pts")
+                    and not cur[(cur.athlete_display_name == r["name"]) & (cur.game_date.isin(last3))].empty]
+            out_pts = sum(r["pts"] for r in outs)
+            ib = min(1.15, 1 + 0.6 * out_pts / max((usual or 110) - out_pts, 40)) if out_pts else 1.0
             for nm in [n for n, m in rec.items() if m >= 20][:8]:
                 if status_of.get((key(nm), team)) == "Out": continue
                 logs = cur[cur.athlete_display_name == nm].sort_values("game_date"); prior = pb0[pb0.athlete_display_name == nm]
@@ -278,7 +290,11 @@ def build(local=None, espn_dir=None):
                     dv = dvp.get(opp, {}).get(f"{pos}|{label}"); lg = dvp_league.get(f"{pos}|{label}")
                     mf = (dv["avg"] / lg) ** 0.5 if dv and lg else 1.0
                     pf = (game_pace / lg_pace) ** 0.5
-                    proj = base * min(1.2, max(0.83, mf)) * min(1.06, max(0.94, pf))
+                    bump = ib if label in ("Points", "Pts+Reb+Ast", "3-Pointers") else 1 + (ib - 1) * 0.5
+                    if tf:  # the team total already prices pace and matchup, so lean on it and soften the rest
+                        proj = base * min(1.1, max(0.9, mf ** 0.5)) * tf * bump
+                    else:
+                        proj = base * min(1.2, max(0.83, mf)) * min(1.06, max(0.94, pf)) * bump
                     allv = vals or list(prior[col].astype(float).tail(10))
                     sd = float(pd.Series(allv).std()) if len(allv) > 1 else base * 0.35
                     props.append({"stat": label, "avg": r1(sum(vals) / len(vals)) if vals else None, "prior": r1(pm), "base": r1(base), "proj": r1(proj), "sd": r1(sd),
@@ -294,6 +310,7 @@ def build(local=None, espn_dir=None):
                     if bk: pr.update(bk)
                 players.append({"id": f"{key(nm)}-{team}", "name": nm, "pos": pos, "team": team, "opp": opp, "home": home, "game": g["id"], "img": img,
                                 "status": status_of.get((key(nm), team), ""), "props": props, "usage": usage,
+                                "adj": {"implied": r1(implied) if implied else None, "usual": usual, "outs": [r["name"] for r in outs], "outPts": r1(out_pts), "bump": round(ib, 3)},
                                 "minPrior": r1(prior.minutes.mean()) if len(prior) else None})
 
     return {"generated": datetime.now(timezone.utc).isoformat(timespec="minutes"), "season": "2026-27",

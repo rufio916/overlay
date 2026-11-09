@@ -25,7 +25,8 @@
   <section id="props" hidden>
     <h2>NBA props</h2>
     <p class="lede">Players in tonight's and tomorrow's games, graded on how the opponent defends their position.</p>
-    <div class="banner"><b>Lines shown are DraftKings', pulled free twice a day.</b> PrizePicks usually sits within half a point. Open a player and type the PrizePicks line to check it against his games and this matchup.</div>
+    <div class="banner"><b>Type the PrizePicks line in any row</b> and Overlay shows the side it likes and the chance to hit, built from DraftKings' odds (pulled free twice a day) and Overlay's own projection. Green clears your slip's break-even. Your lines collect below, best first.</div>
+    <div class="panel" id="ppmine" hidden></div>
     <button class="btn ftoggle" id="ftoggle" aria-expanded="false" aria-controls="filters">Filters</button>
     <div class="controls" id="filters">
       <label for="q">Player<input type="search" id="q" placeholder="Search name"></label>
@@ -109,7 +110,11 @@ function teamModel(g){const H=D.teams[g.home],A=D.teams[g.away];if(!H||!A||H.ort
 // ---------- props ----------
 const STATK={"Points":.3,"Rebounds":.35,"Assists":.4,"3-Pointers":.6,"Pts+Reb+Ast":.25};
 function sdFor(pr){const k=STATK[pr.stat]||.35;return Math.max(Math.sqrt(.5*pr.sd*pr.sd+.5*Math.pow(k*Math.max(pr.proj,1),2)),pr.stat==="3-Pointers"?.8:1);}
-function chance(pr,line,side){const over=1-cdf((line-pr.proj)/sdFor(pr));return side==="More"?over:1-over;}
+function modelOver(pr,line){return 1-cdf((line-pr.proj)/sdFor(pr));}
+// books' chance at any line: take DraftKings' line and no-vig chance, find the average that implies, then read off the new line
+function mktOver(pr,line){if(pr.line==null||pr.pOver==null)return null;const sd=sdFor(pr);let lo=-50,hi=50;for(let i=0;i<50;i++){const z=(lo+hi)/2;(1-cdf(-z)>pr.pOver)?hi=z:lo=z;}return 1-cdf((line-(pr.line+sd*lo))/sd);}
+// Overlay's chance = half our model, half the books (the model alone ran overconfident)
+function chance(pr,line,side){const mo=modelOver(pr,line),mk=mktOver(pr,line);const over=mk==null?mo:.5*mo+.5*mk;return side==="More"?over:1-over;}
 function minTrend(p){const u=p.usage.map(x=>x.min);if(u.length<4)return{cls:"flat",txt:u.length?`${(u.reduce((a,b)=>a+b,0)/u.length).toFixed(0)} min`:"–"};
   const a=u.slice(-3).reduce((x,y)=>x+y,0)/3,b=u.slice(0,-3).reduce((x,y)=>x+y,0)/(u.length-3);const d=a-b;
   return{cls:d>=3?"up":d<=-3?"dn":"flat",txt:`${d>=3?"▲ ":d<=-3?"▼ ":""}${a.toFixed(0)} min`};}
@@ -117,8 +122,23 @@ const ROWS=[];
 D.players.forEach((p,pi)=>p.props.forEach((pr,ki)=>{const d=(D.dvp[p.opp]||{})[p.pos+"|"+pr.stat];if(!d)return;
   const MIN={"Points":8,"Rebounds":3,"Assists":2,"3-Pointers":.9,"Pts+Reb+Ast":14};if((pr.base??0)<(MIN[pr.stat]||0))return;
   ROWS.push({p,pr,pi,ki,d,lg:D.dvpLeague[p.pos+"|"+pr.stat],g:grade(d.rank),base:pr.base??pr.avg??pr.prior});}));
+// PrizePicks lines you type, saved on this device
+let PPL={};try{PPL=JSON.parse(localStorage.getItem("overlay-nba-pp")||"{}");}catch(e){}
+const savePPL=()=>{try{localStorage.setItem("overlay-nba-pp",JSON.stringify(PPL));}catch(e){}};
+const ppKey=r=>r.p.id+"|"+r.pr.stat;
+function ppPick(pr,ln){const o=chance(pr,ln,"More");return o>=.5?{side:"More",ch:o}:{side:"Less",ch:1-o};}
+const ppChip=b=>`<span class="pick ${b.side==="More"?"more":"less"}">${b.side}</span> <span class="edge ${b.ch>=state.be?"hot":"cold"}">${Math.round(b.ch*100)}%</span>`;
+function ppBox(r){const ln=PPL[ppKey(r)];return `<span class="ppbox"><input type="number" inputmode="decimal" step="0.5" min="0" placeholder="Line" aria-label="PrizePicks line for ${esc(r.p.name)} ${esc(r.pr.stat)}" data-pp="${esc(ppKey(r))}" data-pi="${r.pi}" data-ki="${r.ki}" value="${ln??""}"><span class="ppres" data-res="${esc(ppKey(r))}">${ln!=null?ppChip(ppPick(r.pr,ln)):""}</span></span>`;}
+function renderMine(){const el=$("#ppmine");if(!el)return;const rows=ROWS.filter(r=>PPL[ppKey(r)]!=null).map(r=>({r,ln:PPL[ppKey(r)],b:ppPick(r.pr,PPL[ppKey(r)])})).sort((a,b)=>b.b.ch-a.b.ch);
+  if(!rows.length){el.hidden=true;return;}el.hidden=false;
+  el.innerHTML=`<div class="dayhead" style="display:flex;justify-content:space-between"><span>Your PrizePicks lines, best first</span><button class="linkbtn2" id="ppclear">Clear all</button></div>`+rows.map(x=>`<button class="mrow" data-open-pi="${x.r.pi}" data-open-ki="${x.r.ki}"><span><b>${esc(x.r.p.name)}</b> <span class="sub">${x.r.p.team} · ${x.b.side} ${x.ln} ${esc(x.r.pr.stat)}${x.r.pr.line!=null&&x.r.pr.line!==x.ln?` · DK ${x.r.pr.line}`:""}</span></span><span class="edge ${x.b.ch>=state.be?"hot":"cold"}">${Math.round(x.b.ch*100)}%</span></button>`).join("")
+    +`<p class="sub" style="margin:6px 0 0">Green = at or above your slip's break-even. When PrizePicks' line differs from DraftKings', the books' odds do most of the work here.</p>`;
+  $("#ppclear").onclick=()=>{PPL={};savePPL();renderProps();};}
+document.addEventListener("input",e=>{const inp=e.target.closest("input[data-pp]");if(!inp)return;const v=parseFloat(inp.value);const pr=D.players[+inp.dataset.pi].props[+inp.dataset.ki];
+  if(isNaN(v))delete PPL[inp.dataset.pp];else PPL[inp.dataset.pp]=v;savePPL();
+  document.querySelectorAll(`[data-res="${CSS.escape(inp.dataset.pp)}"]`).forEach(x=>x.innerHTML=isNaN(v)?"":ppChip(ppPick(pr,v)));clearTimeout(renderMine.t);renderMine.t=setTimeout(renderMine,400);});
 function renderProps(){
-  $("#phead").innerHTML=`<tr><th>Player</th><th>Stat</th><th class="num">Avg</th><th class="num" title="Overlay's own rough projection; the +/- is the effect of this matchup and pace">Our proj</th><th>Matchup</th><th>Minutes</th><th>Status</th><th aria-label="Open"></th></tr>`;
+  $("#phead").innerHTML=`<tr><th>Player</th><th>Stat</th><th class="num">Avg</th><th class="num" title="Overlay's own rough projection; the +/- is the effect of this matchup and pace">Our proj</th><th>Matchup</th><th>Minutes</th><th>Status</th><th title="Type the PrizePicks line">PrizePicks</th><th aria-label="Open"></th></tr>`;
   let list=ROWS.filter(r=>(!state.q||r.p.name.toLowerCase().includes(state.q.toLowerCase()))&&(!state.pos||r.p.pos===state.pos)&&(!state.mkt||r.pr.stat===state.mkt)&&(!state.gm||r.p.game===state.gm)&&(!state.grd||state.grd.includes(r.g)));
   list.sort((a,b)=>(b.pr.proj-b.base)/sdFor(b.pr)-(a.pr.proj-a.base)/sdFor(a.pr));
   const nf=["pos","mkt","gm","grd"].filter(k=>state[k]).length+(state.q?1:0);$("#ftoggle").textContent=nf?`Filters (${nf})`:"Filters";
@@ -130,10 +150,12 @@ function renderProps(){
     return `<tr class="click" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}" title="Open full breakdown"><td>${head(r)}</td><td>${r.pr.stat}${r.pr.line!=null?`<div class="sub">DK ${r.pr.line}</div>`:""}</td><td class="num">${avg(r)}</td>
       <td class="num">${r.pr.proj} <span class="delta ${dp>.3?"up":dp<-.3?"dn":""}">${dp>=0?"+":""}${dp.toFixed(1)}</span></td>
       <td><span class="chip g-${r.g}" title="${esc(TN(r.p.opp))} allows ${r.d.avg} ${r.pr.stat.toLowerCase()} a game to ${POSN[r.p.pos]} (rank ${r.d.rank} of 30)">${r.g} matchup</span></td>
-      <td><span class="trend ${t.cls}">${t.txt}</span></td><td>${st(r)}</td><td class="chev" aria-hidden="true">›</td></tr>`;}).join("");
+      <td><span class="trend ${t.cls}">${t.txt}</span></td><td>${st(r)}</td><td>${ppBox(r)}</td><td class="chev" aria-hidden="true">›</td></tr>`;}).join("");
+  renderMine();
   $("#pcards").innerHTML=list.slice(0,80).map(r=>{const t=minTrend(r.p);const dp=r.pr.proj-(r.base||r.pr.proj);return `<div class="pcard click" role="button" tabindex="0" data-pi="${r.pi}" data-ki="${r.ki}">
     <div class="top"><div style="min-width:0">${head(r)}</div>${st(r)}</div>
     <div class="play"><span class="bigline">${r.pr.stat}</span><span class="sub">${r.pr.line!=null?`DK line ${r.pr.line} · `:""}avg ${r.pr.avg??r.pr.prior} · our proj ${r.pr.proj}</span><span class="delta ${dp>.3?"up":dp<-.3?"dn":""}">${dp>=0?"+":""}${dp.toFixed(1)}</span></div>
+    <div class="ppline">${ppBox(r)}</div>
     <div class="foot"><div class="play"><span class="chip g-${r.g}">${r.g} matchup</span><span class="trend ${t.cls}">${t.txt}</span></div><span class="more-link">Details ›</span></div></div>`;}).join("");
 }
 
@@ -159,9 +181,13 @@ function keyOuts(t,minMin=20){return (D.injuries[t]||[]).filter(x=>x.status==="O
 let cur=null;
 function openPlayer(pi,ki){const p=D.players[pi],pr=p.props[ki];const ex=state.legs.find(l=>l.id===p.id&&l.stat===pr.stat);
   cur={pi,ki,side:ex?.side||"More",line:ex?.line??pr.line??Math.max(.5,Math.round(pr.proj)-.5)};drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;$("#closebtn").focus();}
+function adjTxt(p){const a=p.adj||{};const bits=[];
+  if(a.implied&&a.usual)bits.push(`Vegas has ${esc(p.team)} at <b>${a.implied}</b> points tonight vs ${a.usual} usually${Math.abs(a.implied-a.usual)>=3?(a.implied>a.usual?", a bump":", a drag"):""}`);
+  if(a.outs&&a.outs.length)bits.push(`${esc(a.outs.join(", "))} ${a.outs.length>1?"are":"is"} out (${a.outPts} points a game between them), worth about <b>+${Math.round((a.bump-1)*100)}%</b> on his scoring`);
+  return bits.length?`<br><span class="sub">Also in the projection: ${bits.join("; ")}.</span>`:"";}
 function hitStats(pr,line,side){const L=pr.log;const hit=v=>side==="More"?v.v>line:v.v<line;const l5=L.slice(-5);
-  return{l5:l5.length?l5.filter(hit).length+"/"+l5.length:"–",season:L.length?L.filter(hit).length+"/"+L.length:"–",est:chance(pr,line,side)};}
-function hitsHtml(h){return `<div><span>Last 5</span><b>${h.l5}</b></div><div><span>Season</span><b>${h.season}</b></div><div><span>Est. chance</span><b style="color:${h.est>=state.be?"var(--pos)":"var(--fg)"}">${Math.round(h.est*100)}%</b></div>`;}
+  const mk=mktOver(pr,line);return{l5:l5.length?l5.filter(hit).length+"/"+l5.length:"–",season:L.length?L.filter(hit).length+"/"+L.length:"–",est:chance(pr,line,side),mkt:mk==null?null:(side==="More"?mk:1-mk)};}
+function hitsHtml(h){return `<div><span>Last 5</span><b>${h.l5}</b></div><div><span>Season</span><b>${h.season}</b></div>${h.mkt!=null?`<div><span>Books</span><b>${Math.round(h.mkt*100)}%</b></div>`:""}<div><span>Overlay</span><b style="color:${h.est>=state.be?"var(--pos)":"var(--fg)"}">${Math.round(h.est*100)}%</b></div>`;}
 function drawSheet(){const {pi,ki}=cur;const p=D.players[pi],pr=p.props[ki];const d=D.dvp[p.opp][p.pos+"|"+pr.stat];const lg=D.dvpLeague[p.pos+"|"+pr.stat];const g=grade(d.rank);const G=GAME[p.game];
   const kind=g==="A"||g==="B"?"good":g==="C"?"mid":"bad";const pctDiff=Math.round((d.avg-lg)/lg*100);
   const soft=d.rank>=25?"one of the softest":d.rank>=19?"softer than average":d.rank>=12?"about average":d.rank>=6?"tougher than average":"one of the toughest";
@@ -184,7 +210,7 @@ function drawSheet(){const {pi,ki}=cur;const p=D.players[pi],pr=p.props[ki];cons
      ${pr.line!=null?`<p class="sub" style="margin:6px 0 0">DraftKings: ${pr.line} (Over ${fmtOdds(pr.overOdds)} / Under ${fmtOdds(pr.underOdds)}), so the book has Over at <b>${Math.round(pr.pOver*100)}%</b> after the vig${pr.lineOpen!=null&&pr.lineOpen!==pr.line?`. Opened at ${pr.lineOpen}`:""}.</p>`:""}
      <div class="hits" id="hitsbox">${hitsHtml(h)}</div>
      <div class="row" style="justify-content:space-between"><span class="sub">Needs about ${(state.be*100).toFixed(1)}% for a 6-pick Flex. Rough estimate from his games and this matchup.</span><button class="btn primary" id="addleg">${inSlip?"Update slip":"Add to slip"}</button></div></div>
-   <div class="verdict ${kind}"><strong>${g} matchup for ${esc(pr.stat.toLowerCase())}</strong>${esc(TN(p.opp))} is ${soft} against ${POSN[p.pos]}: they allow ${d.avg} ${esc(pr.stat.toLowerCase())} a game to the position, ${Math.abs(pctDiff)}% ${pctDiff>=0?"above":"below"} the league average of ${lg} (rank ${d.rank} of 30, 30 allows the most). Our projection: <b>${pr.proj}</b> (${pr.avg!=null?`season avg ${pr.avg}`:"no games yet"}${pr.prior!=null?`, last season ${pr.prior}`:""}).</div>
+   <div class="verdict ${kind}"><strong>${g} matchup for ${esc(pr.stat.toLowerCase())}</strong>${esc(TN(p.opp))} is ${soft} against ${POSN[p.pos]}: they allow ${d.avg} ${esc(pr.stat.toLowerCase())} a game to the position, ${Math.abs(pctDiff)}% ${pctDiff>=0?"above":"below"} the league average of ${lg} (rank ${d.rank} of 30, 30 allows the most). Our projection: <b>${pr.proj}</b> (${pr.avg!=null?`season avg ${pr.avg}`:"no games yet"}${pr.prior!=null?`, last season ${pr.prior}`:""}).${adjTxt(p)}</div>
    ${notes.length?`<ul class="why">${notes.map(n=>`<li>${n}</li>`).join("")}</ul>`:""}
    <div class="sec">${esc(p.name)} · ${esc(pr.stat)} by game</div><div id="logchart">${bars(pr.log,pr.avg??pr.prior,"Season avg "+(pr.avg??pr.prior),"Game log",cur.line)}</div>
    <div class="sec">Minutes and shots by game</div><div style="overflow-x:auto"><table class="mini"><thead><tr><th>Game</th><th>Min</th><th>FGA</th><th>Started</th></tr></thead><tbody>${p.usage.map(u=>`<tr><td>${esc(u.wk)} <span class="sub">${esc(u.o)}</span></td><td>${u.min}</td><td>${u.fga}</td><td>${u.starter?"Yes":"No"}</td></tr>`).join("")||'<tr><td colspan="4" class="sub">No games yet this season.</td></tr>'}</tbody></table></div>
@@ -329,6 +355,8 @@ for(const k of["pos","mkt","gm","grd"]){$("#"+k).value=state[k];$("#"+k).onchang
 $("#q").oninput=e=>{state.q=e.target.value;renderProps();};
 $("#ftoggle").onclick=()=>{const o=$("#filters").classList.toggle("open");$("#ftoggle").setAttribute("aria-expanded",o);};
 document.addEventListener("click",e=>{
+  if(e.target.closest("input[data-pp]"))return;
+  const mo=e.target.closest("[data-open-pi]");if(mo){openPlayer(+mo.dataset.openPi,+mo.dataset.openKi);return;}
   const rm=e.target.closest("[data-rm]");if(rm){state.legs.splice(+rm.dataset.rm,1);save();renderSlip();return;}
   const rp=e.target.closest("[data-rmp]");if(rp){state.par.splice(+rp.dataset.rmp,1);save();renderSlip();renderGames();return;}
   const bt=e.target.closest("[data-bet]");if(bt&&!bt.disabled){const k=bt.dataset.bet;const gid=k.split("|")[0];
@@ -339,7 +367,7 @@ document.addEventListener("click",e=>{
   const t=e.target.closest("tr.click,.pcard,.linkbtn,.propchip,[data-switch]");if(t&&t.dataset.pi!==undefined){openPlayer(+t.dataset.pi,+t.dataset.ki);return;}
   const g=e.target.closest(".game");if(g){state.game=g.dataset.g;save();renderGames();const gd=$("#gamedetail");if(gd)gd.scrollIntoView({block:"start"});}
 });
-for(const id of ["#pbody","#pcards"])$(id).addEventListener("keydown",e=>{if(e.key==="Enter"){const r=e.target.closest("tr.click,.pcard");if(r)openPlayer(+r.dataset.pi,+r.dataset.ki);}});
+for(const id of ["#pbody","#pcards"])$(id).addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.target.closest("input")){const r=e.target.closest("tr.click,.pcard");if(r)openPlayer(+r.dataset.pi,+r.dataset.ki);}});
 renderProps();renderGames();renderSlip();renderHeat();setTab(state.tab);
 
 // ---------- saved bets + share links (shared with the Today page) ----------

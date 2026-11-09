@@ -21,6 +21,7 @@ SHARP = ["pinnacle", "fanduel", "draftkings", "betmgm", "espnbet", "betrivers", 
 BOOKW = {"pinnacle": 3, "fanduel": 1.5, "draftkings": 1.5, "betmgm": 1, "espnbet": 1, "betrivers": 1, "bovada": .5}
 NFL_COL = {"Pass Yds": "passing_yards", "Rush Yds": "rushing_yards", "Rec Yds": "receiving_yards", "Receptions": "receptions"}
 NFL_PICKS_PER_GAME = 3     # Overlay's NFL picks: best 3 props (54%+) in each game
+BLEND = 0.5                # shown/recorded chance = half Overlay's model, half DraftKings (the model alone ran overconfident)
 NHL_PROPS_PER_DAY = 8
 NBA_PROPS_PER_DAY = 8      # Overlay's daily NBA prop picks (biggest matchup boosts)
 NBA_PROP_MIN_CHANCE = .55  # Overlay must give the side at least 55%
@@ -149,6 +150,22 @@ def nba_rank(nba):
     return sorted(nba_props, key=lambda x: -x["lift"])
 
 
+def moved(p):
+    """+1 if the market moved toward our pick between logging and the start, -1 if away, 0 if no change."""
+    f = p.get("first") or {}
+    if f.get("line") is None or p.get("line") is None: return None
+    dl = p["line"] - f["line"]
+    if dl: return 1 if (dl < 0) == (p["side"] == "More") else -1
+    c0, c1 = f.get("chance"), p.get("mkt", p.get("chance"))
+    if c0 is None or c1 is None or abs(c1 - c0) < .01: return 0
+    return 1 if c1 > c0 else -1
+
+
+def clv(L):
+    m = [moved(p) for p in L if p.get("result") is not None]; m = [x for x in m if x is not None]
+    return {"n": len(m), "toward": sum(x == 1 for x in m), "away": sum(x == -1 for x in m), "same": sum(x == 0 for x in m)}
+
+
 def nba_picks(nba):
     """Overlay's NBA prop picks: where its projection disagrees most with the DraftKings line.
     chance = Overlay's estimate for the side it picks; mkt = DraftKings' no-vig chance for that side."""
@@ -168,7 +185,7 @@ def nba_picks(nba):
             odds = pr["overOdds"] if side == "More" else pr["underOdds"]
             if ch < NBA_PROP_MIN_CHANCE or not NBA_PROP_MIN_EDGE <= ch - mk <= NBA_PROP_MAX_EDGE or odds < -160: continue
             out.append({"name": p["name"], "id": p["id"], "team": p["team"], "opp": p["opp"], "game": p["game"], "stat": pr["stat"], "line": pr["line"],
-                        "side": side, "odds": odds, "proj": pr["proj"], "chance": round(ch, 4), "mkt": round(mk, 4), "edge": round(ch - mk, 4), "img": p.get("img", "")})
+                        "side": side, "odds": odds, "proj": pr["proj"], "chance": round(BLEND * ch + (1 - BLEND) * mk, 4), "model": round(ch, 4), "mkt": round(mk, 4), "edge": round(ch - mk, 4), "img": p.get("img", "")})
     return sorted(out, key=lambda x: -x["edge"])
 
 
@@ -183,7 +200,7 @@ def nhl_picks(nhl):
             odds = pr["overOdds"] if side == "More" else pr["underOdds"]
             if ch < NBA_PROP_MIN_CHANCE or not NBA_PROP_MIN_EDGE <= ch - mk <= NBA_PROP_MAX_EDGE or odds < -160: continue
             out.append({"name": p["name"], "id": p["id"], "team": p["team"], "opp": p["opp"], "game": p["game"], "stat": pr["stat"], "line": pr["line"],
-                        "side": side, "odds": odds, "proj": pr["proj"], "chance": round(ch, 4), "mkt": round(mk, 4), "edge": round(ch - mk, 4)})
+                        "side": side, "odds": odds, "proj": pr["proj"], "chance": round(BLEND * ch + (1 - BLEND) * mk, 4), "model": round(ch, 4), "mkt": round(mk, 4), "edge": round(ch - mk, 4)})
     return sorted(out, key=lambda x: -x["edge"])
 
 
@@ -191,6 +208,10 @@ def run(a):
     nfl = load_json(a.nfl, {}); nba = load_json(a.nba, {}); cfb = load_json(a.cfb, {}); nhl = load_json(a.nhl, {}); cbb = load_json(a.cbb, {})
     hist = load_json(a.history, {"picks": {}, "injurySnap": {}, "injuryNews": []})
     picks = hist["picks"]; t_now = now()
+
+    # remember where each pending pick started, so we can tell later whether the line moved our way
+    def snap(p): return {"line": p.get("line"), "chance": p.get("mkt", p.get("chance")), "odds": p.get("odds"), "at": p.get("logged")}
+    firsts = {k: (p.get("first") or snap(p)) for k, p in picks.items() if p.get("result") is None}
 
     # ---------- 1. log picks (update until kickoff, then freeze) ----------
     nfl_games = {g["id"]: g for g in nfl.get("games", [])}
@@ -262,6 +283,10 @@ def run(a):
         picks[k] = {"sport": "nba", "type": "prop", "game": g["id"], "day": day, "away": g["away"], "home": g["home"], "name": r["name"], "id": r["id"],
                     "team": r["team"], "opp": r["opp"], "stat": r["stat"], "line": r["line"], "side": r["side"], "odds": r["odds"], "proj": r["proj"],
                     "chance": r["chance"], "mkt": r["mkt"], "kickoff": g["start"], "logged": iso(t_now), "result": None}
+
+    for k, p in picks.items():
+        if p.get("result") is None and "line" in p and p["sport"] in ("nfl", "nba", "nhl"):
+            p["first"] = firsts.get(k) or snap(p)
 
     # ---------- 2. grade finished picks ----------
     try:
@@ -384,13 +409,13 @@ def run(a):
               "cfb": [p for p in graded if p["sport"] == "cfb"][:15]}
     track = {"nfl": {**summary(nflp), "buckets": buckets, "pending": sum(p.get("result") is None for p in nflp),
                      "byWeek": {str(w): summary([p for p in nflp if p["week"] == w]) for w in sorted({p["week"] for p in nflp})},
-                     "top": {**summary(top), "pending": sum(p.get("result") is None for p in top),
+                     "top": {**summary(top), "clv": clv(top), "pending": sum(p.get("result") is None for p in top),
                              "byWeek": {str(w): summary([p for p in top if p["week"] == w]) for w in sorted({p["week"] for p in top})}}},
-             "nbaProps": {**summary(nbaprops), "pending": sum(p.get("result") is None for p in nbaprops),
+             "nbaProps": {**summary(nbaprops), "clv": clv(nbaprops), "pending": sum(p.get("result") is None for p in nbaprops),
                           "ours": round(sum(p["chance"] for p in nbaprops if p.get("result") in ("win", "loss")) / max(1, summary(nbaprops)["n"]), 3),
                           "mkt": round(sum(p["mkt"] for p in nbaprops if p.get("result") in ("win", "loss")) / max(1, summary(nbaprops)["n"]), 3),
                           "byStat": {st_: summary([p for p in nbaprops if p["stat"] == st_]) for st_ in sorted({p["stat"] for p in nbaprops})}},
-             "nhlProps": {**summary(nhlprops), "pending": sum(p.get("result") is None for p in nhlprops),
+             "nhlProps": {**summary(nhlprops), "clv": clv(nhlprops), "pending": sum(p.get("result") is None for p in nhlprops),
                           "ours": round(sum(p["chance"] for p in nhlprops if p.get("result") in ("win", "loss")) / max(1, summary(nhlprops)["n"]), 3),
                           "mkt": round(sum(p["mkt"] for p in nhlprops if p.get("result") in ("win", "loss")) / max(1, summary(nhlprops)["n"]), 3)},
              "cbb": {"spread": summary([p for p in cbbp if p["type"] == "spread"]), "total": summary([p for p in cbbp if p["type"] == "total"]), "pending": sum(p.get("result") is None for p in cbbp)},
@@ -425,7 +450,7 @@ def run(a):
                 extra = next((r for r in cand if r["team"] == team), None)
                 if extra:
                     close.append(extra)
-        nfl_picks.append({"game": g["id"], "away": g["away"], "home": g["home"], "kickoff": iso(nfl_kickoff(g)),
+        nfl_picks.append({"game": g["id"], "away": g["away"], "home": g["home"], "kickoff": iso(nfl_kickoff(g)), "wx": (g.get("wx") or {}).get("flag", ""),
                           "picks": [{**p, "pos": pinfo.get(norm(p["name"]), {}).get("pos", ""), "img": pinfo.get(norm(p["name"]), {}).get("img", "")} for p in sel],
                           "close": [{x: r[x] for x in ("name", "pos", "team", "opp", "stat", "line", "side", "chance", "img")} for r in close]})
 

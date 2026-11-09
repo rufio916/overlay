@@ -137,7 +137,7 @@ function pickRow(x,href,meta,second){const done=x.result&&x.result!=="void";
   if(!S.length){h+=`<p class="sub">${D.nflLinesAt?"No props cleared the 54% break-even for the next games yet.":"Picks show up after the Thursday and Saturday morning line pulls."} <a href="nfl.html?tab=match" style="color:var(--accent)">All NFL props ›</a></p>`;$("#nflpicks").innerHTML=h;return;}
   const label=dd===todayPT?"Today":new Date(dd+"T12:00").toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"});
   h+=`<div class="dayhead">${label} · ${S.length} game${S.length>1?"s":""}</div>`;
-  h+=S.map((g,k)=>{const head=`<div class="ghead"><span>${logo("nfl",g.away)} ${g.away} @ ${logo("nfl",g.home)} ${g.home}</span><span class="sub">${new Date(g.kickoff).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span></div>`;
+  h+=S.map((g,k)=>{const head=`<div class="ghead"><span>${logo("nfl",g.away)} ${g.away} @ ${logo("nfl",g.home)} ${g.home}</span><span class="sub">${g.wx?`<span style="color:var(--warn)">${esc(g.wx)}</span> · `:""}${new Date(g.kickoff).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span></div>`;
     const rows=g.picks.map(x=>pickRow(x,`nfl.html?open=${encodeURIComponent(norm(x.name)+"|"+x.stat)}`,`${x.pos?x.pos+" · ":""}${x.team} ${x.team===g.home?"vs":"@"} ${x.opp}`,"")).join("")
       +((g.close||[]).length?`<div class="sub" style="margin:8px 0 0">${g.picks.length?"Next closest (under 54%, not tracked)":"Nothing cleared 54% here. Closest (not tracked)"}:</div>`+g.close.map(x=>pickRow(x,`nfl.html?open=${encodeURIComponent(norm(x.name)+"|"+x.stat)}`,`${x.pos?x.pos+" · ":""}${x.team} ${x.team===g.home?"vs":"@"} ${x.opp}`,"")).join(""):"");
     return S.length>3?`<details class="gsum"${k<2?" open":""}><summary>${head}</summary>${rows}</details>`:head+rows;}).join("");
@@ -255,13 +255,17 @@ document.addEventListener("click",e=>{const d=e.target.closest("[data-delbet]");
   const tiles=(a,b,c)=>`<div class="rec">${[a,b,c].map(([k,v,col])=>`<div><span>${k}</span><b${col?` style="color:${col}"`:""}>${v}</b></div>`).join("")}</div>`;
   const tone=(s,be)=>s&&s.n>=10?(s.pct>=be?"var(--pos)":"var(--neg)"):"";
   const mark=x=>`<i class="${x.result}">${x.result==="win"?"✓":x.result==="loss"?"✗":"–"}</i>`;
+  const clvTxt=c=>c&&c.n?`<p class="sub" style="margin:2px 0 0" title="How the line moved between when Overlay picked it and the start. Getting better numbers than the final line is the earliest sign a system works.">Line moved <b style="color:var(--pos)">our way on ${c.toward}</b>, against us on ${c.away}, no change on ${c.same} (${c.n} graded picks).</p>`:"";
   let h=`<h3 id="record-h">Overlay's track record <span class="sub">Every pick is logged before the game starts and graded after</span></h3>`;
   h+=`<div class="sec">NFL player props · Overlay's picks (best 3 per game)</div>`+tiles(["Record",rec(top)],["Hit rate",p(top),tone(top,.542)],["Pending",top.pending||0]);
+  h+=clvTxt(top.clv);
   if(top.byWeek)h+=`<p class="sub">${Object.entries(top.byWeek).filter(([,s])=>s.n).map(([w,s])=>`Wk ${w}: ${s.w}-${s.l}`).join(" · ")} · Needs 54%+ to profit on a 6-pick Flex.</p>`;
   h+=`<details class="recent"><summary>All NFL props rated 54%+: ${rec(nf)} (${p(nf)}) ›</summary><div style="overflow-x:auto"><table class="mini"><thead><tr><th>Rated</th><th>Picks</th><th>Expected</th><th>Actual</th></tr></thead><tbody>${(nf.buckets||[]).map(b=>`<tr><td>${b.label}</td><td>${b.n}</td><td>${b.exp!=null?pct(b.exp):"–"}</td><td>${b.n?pct(b.pct):"–"}</td></tr>`).join("")}</tbody></table></div><p class="sub">${Object.entries(nf.byWeek||{}).map(([w,s])=>`Wk ${w}: ${s.w}-${s.l}`).join(" · ")}</p></details>`;
   h+=`<div class="sec">NBA player props · Overlay's picks vs the DraftKings line</div>`+tiles(["Record",rec(np)],["Hit rate",p(np),tone(np,.524)],["Pending",np.pending||0]);
+  h+=clvTxt(np.clv);
   h+=`<p class="sub">${np.n?`Overlay expected ${pct(np.ours)}; DraftKings' odds implied ${pct(np.mkt)}. Beating the DraftKings number is the real test. `:"Started Nov 4, so there's nothing graded yet. "}${np.byStat&&np.n?Object.entries(np.byStat).filter(([,s])=>s.n).map(([k,s])=>`${k}: ${s.w}-${s.l}`).join(" · "):""}</p>`;
   const hp=T.nhlProps||{};h+=`<div class="sec">NHL player props · Overlay's picks vs the DraftKings line</div>`+tiles(["Record",rec(hp)],["Hit rate",p(hp),tone(hp,.524)],["Pending",hp.pending||0]);
+  h+=clvTxt(hp.clv);
   if(hp.n)h+=`<p class="sub">Overlay expected ${pct(hp.ours)}; DraftKings' odds implied ${pct(hp.mkt)}.</p>`;
   h+=`<div class="sec">NBA team leans · rough model vs DraftKings</div>`+tiles(["Spreads",rec(nb.spread),tone(nb.spread,.524)],["Totals",rec(nb.total),tone(nb.total,.524)],["Pending",nb.pending||0]);
   const cf=T.cfb||{};if((cf.spread&&cf.spread.n)||(cf.total&&cf.total.n)||cf.pending)h+=`<div class="sec">College football leans · scores-only model vs DraftKings</div>`+tiles(["Spreads",rec(cf.spread),tone(cf.spread,.524)],["Totals",rec(cf.total),tone(cf.total,.524)],["Pending",cf.pending||0]);

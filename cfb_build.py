@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import numpy as np
 from nba_build import parse_odds
+import weather
 
 PT = ZoneInfo("America/Los_Angeles")
 SITE = "https://site.api.espn.com/apis/site/v2/sports/football/college-football"
@@ -129,6 +130,9 @@ def player_props(cur, games, teams, slate, local, cache_path):
     opp_of = {}
     for g in slate:
         if g["state"] == "pre": opp_of[g["home"]["id"]] = (g, g["away"]["id"]); opp_of[g["away"]["id"]] = (g, g["home"]["id"])
+    ppg = collections.defaultdict(list)
+    for g_ in games:
+        ppg[g_["h"]].append(g_["hs"]); ppg[g_["a"]].append(g_["as"])
     players = []
     for aid, L in logs.items():
         L.sort(key=lambda x: x["date"]); team = L[-1]["team"]
@@ -136,6 +140,10 @@ def player_props(cur, games, teams, slate, local, cache_path):
         last_w = max(x["w"] for g in games for x in [g] if team in (g["h"], g["a"]))
         if L[-1]["w"] < last_w - 1: continue  # hasn't played in his team's last two games (hurt or benched)
         g, opp = opp_of[team]
+        o = g.get("odds") or {}; implied = None; usual = float(np.mean(ppg[team])) if ppg.get(team) else None
+        if o.get("total") is not None and o.get("spreadH") is not None:
+            implied = o["total"] / 2 - o["spreadH"] / 2 if g["home"]["id"] == team else o["total"] / 2 + o["spreadH"] / 2
+        tf = min(1.15, max(0.85, (implied / usual) ** 0.5)) if implied and usual else 1.0
         props = []
         for name, cat, lab in PROPS:
             vals = [x["stats"].get(cat, {}).get(lab) for x in L]
@@ -151,7 +159,7 @@ def player_props(cur, games, teams, slate, local, cache_path):
             oa = allowed.get(opp, {}).get(name); fac = 1.0
             if oa and avg_allowed.get(name):
                 fac = 1 + 0.5 * (np.mean(oa) / avg_allowed[name] - 1) * min(1, len(oa) / 6)
-            proj = base * max(.75, min(1.3, fac))
+            proj = base * max(.75, min(1.3, fac)) * tf
             sd = max(float(np.std(arr, ddof=1)) if len(arr) > 2 else base * .4, base * .25, 1.0 if name in ("Pass TDs", "Receptions", "Completions") else 8)
             props.append({"stat": name, "base": round(base, 1), "avg": round(float(arr.mean()), 1), "proj": round(proj, 1), "sd": round(sd, 1), "fac": round(fac, 2),
                           "oppRank": None, "log": [{"w": x["w"], "opp": x["opp"], "home": x["home"], "v": v} for x, v in pts]})
@@ -162,7 +170,8 @@ def player_props(cur, games, teams, slate, local, cache_path):
         T, O = teams.get(team, {}), teams.get(opp, {})
         players.append({"id": aid, "name": L[-1]["name"], "pos": pos, "team": T.get("abbr"), "teamId": team, "opp": O.get("abbr"), "oppId": opp,
                         "home": None if g["neutral"] else g["home"]["id"] == team, "game": g["id"], "start": g["start"], "img": L[-1]["img"],
-                        "teamRank": T.get("rank"), "oppRank": O.get("rank"), "props": props})
+                        "teamRank": T.get("rank"), "oppRank": O.get("rank"), "props": props,
+                        "adj": {"implied": round(implied, 1) if implied else None, "usual": round(usual, 1) if usual else None}})
     # opponent rank for each stat: how much that defense allows (1 = allows the most)
     for name, _, _ in PROPS:
         tms = sorted([t for t in allowed if allowed[t].get(name)], key=lambda t: -np.mean(allowed[t][name]))
@@ -255,6 +264,13 @@ def build(local=None, cache_path="cfb_box.json"):
                 if abs(d) >= LEAN_TOTAL:
                     leans.append({"type": "total", "side": "Over" if d > 0 else "Under", "line": o["total"], "by": round(abs(d), 1)})
         g["leans"] = leans
+        v = c.get("venue") or {}; ad = v.get("address") or {}
+        if not local and st.get("state") == "pre" and not v.get("indoor") and ad.get("city") and (H["rank"] or A["rank"] or leans):
+            try:
+                ll = weather.geocode(ad.get("city"), ad.get("state"))
+                if ll: g["wx"] = weather.forecast(ll[0], ll[1], e["date"])
+            except Exception as ex: print("weather skipped", e["id"], ex)
+        g["venue"] = v.get("fullName", "")
         slate.append(g)
     slate.sort(key=lambda g: (g["start"], -(min(g["home"]["rank"] or 99, g["away"]["rank"] or 99))))
     try: players = player_props(cur, games, teams, slate, local, cache_path)

@@ -99,6 +99,7 @@ function renderGames(){const L=list();const days=[...new Set(L.map(g=>g.day))];
       <div class="matchup">${logo(g.away)} ${tname(g.away)} ${g.neutral?"vs":"@"} ${logo(g.home)} ${tname(g.home)}</div>
       <div class="meta"><span>${fin||live?esc(g.detail):when(g.start)}${g.tv?` · ${esc(g.tv)}`:""}</span>${o&&o.spreadH!=null?`<span>${spreadTxt(g)}</span>`:""}${o&&o.total!=null?`<span>O/U ${o.total}</span>`:""}</div>
       ${fin||live?`<div class="meta"><span><b>${g.away.abbr} ${g.scoreA} · ${g.home.abbr} ${g.scoreH}</b></span></div>`:g.pH!=null?`<div class="meta"><span>${g.pH>=.5?g.home.abbr:g.away.abbr} ${Math.max(g.pH,1-g.pH)>.99?">99%":pct(Math.max(g.pH,1-g.pH))} to win</span></div>`:`<div class="meta"><span>Lines not posted</span></div>`}
+      ${g.wx&&g.wx.flag&&!fin?`<div class="envrow"><span class="chip inj" title="Kickoff forecast">${esc(g.wx.flag)}</span></div>`:""}
       ${g.leans.length&&!fin?`<div class="envrow">${g.leans.map(l=>`<span class="chip">Lean ${l.type==="spread"?`${l.team} ${sgn(l.line)}`:`${l.side} ${l.line}`}</span>`).join("")}</div>`:""}
     </button>`;}).join("")+"</div>").join("");
   const g=GAME[state.game];$("#gamedetail").innerHTML=g&&L.includes(g)?detail(g):"";}
@@ -121,7 +122,8 @@ function detail(g){const H=D.teams[g.home.id]||{},A=D.teams[g.away.id]||{},o=g.o
     ${g.leans.length?`<p>${g.leans.map(l=>`<span class="lean">Lean: ${l.type==="spread"?`${esc(l.team)} ${sgn(l.line)}`:`${l.side} ${l.line}`}</span> (${l.by} points off the line)`).join(" · ")}</p>`:`<p class="sub">Close enough to the market that there's no lean.</p>`}
     <p class="sub">Built from scores only: no injuries, weather or QB changes. It went about 50/50 against the spread in testing, so use it as a second opinion, not a reason to bet.</p></div>`;
   return `<div class="panel gamepanel" id="gd"><h2>${logo(g.away,34)} ${tname(g.away)} ${g.neutral?"vs":"@"} ${logo(g.home,34)} ${tname(g.home)}</h2>
-    <p class="sub">${g.state==="pre"?when(g.start):esc(g.detail)}${g.tv?` · ${esc(g.tv)}`:""}${g.conf?" · Conference game":""}</p>
+    <p class="sub">${g.state==="pre"?when(g.start):esc(g.detail)}${g.tv?` · ${esc(g.tv)}`:""}${g.conf?" · Conference game":""}${g.venue?` · ${esc(g.venue)}`:""}${g.wx?` · Kickoff forecast: ${g.wx.temp}°F, wind ${g.wx.wind} mph, ${g.wx.snow?"snow":g.wx.rain+"% rain"}`:""}</p>
+    ${g.wx&&g.wx.flag?`<p class="sub"><b style="color:var(--warn)">Weather to watch:</b> strong wind and heavy rain or snow tend to cut passing and kicking.</p>`:""}
     <div class="tablebox" style="margin-top:10px"><table class="cmp"><thead><tr><th></th><th>${esc(g.away.abbr)}</th><th>${esc(g.home.abbr)}</th></tr></thead><tbody>
       <tr><td>Record</td><td class="v">${esc(g.away.rec||A.rec||"–")}</td><td class="v">${esc(g.home.rec||H.rec||"–")}</td></tr>
       ${row("Overlay rating","rating",true,"ratingRank")}${row("Points per game","ppg",true,"offRank")}${row("Points allowed","oppg",false,"defRank")}
@@ -172,7 +174,7 @@ function hitsHtml(pr){const hit=v=>cur.side==="More"?v.v>cur.line:v.v<cur.line;c
 function openPlayer(pi,ki){const pr=P[pi].props[ki];const ln=LINES[P[pi].id+"|"+pr.stat];cur={pi,ki,side:ln!=null?bestSide(pr,ln).side:"More",line:ln??Math.max(.5,Math.round(pr.proj)-.5)};drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;}
 function drawSheet(){const p=P[cur.pi],pr=p.props[cur.ki];const def=pr.oppRank&&pr.of?pr.of-pr.oppRank+1:null;
   const kind=def==null?"mid":def>pr.of*.66?"good":def<pr.of*.33?"bad":"mid";
-  const verdict=def==null?"":`<div class="verdict ${kind}"><strong>${kind==="good"?"Soft":kind==="bad"?"Tough":"Average"} matchup</strong>${esc(p.opp)} ranks #${def} of ${pr.of} at stopping ${esc(pr.stat.toLowerCase())} (1 = allows the fewest). Overlay's projection: <b>${pr.proj}</b> vs his recent-weighted ${pr.base} and season average ${pr.avg}.</div>`;
+  const verdict=def==null?"":`<div class="verdict ${kind}"><strong>${kind==="good"?"Soft":kind==="bad"?"Tough":"Average"} matchup</strong>${esc(p.opp)} ranks #${def} of ${pr.of} at stopping ${esc(pr.stat.toLowerCase())} (1 = allows the fewest). Overlay's projection: <b>${pr.proj}</b> vs his recent-weighted ${pr.base} and season average ${pr.avg}.${p.adj&&p.adj.implied?`<br><span class="sub">Also in the projection: Vegas has ${esc(p.team)} at <b>${p.adj.implied}</b> points vs ${p.adj.usual} a game so far${Math.abs(p.adj.implied-p.adj.usual)>=4?(p.adj.implied>p.adj.usual?", a bump":", a drag"):""}.</span>`:""}</div>`;
   $("#sheet").innerHTML=`<div class="sheethead"><div class="who">${hs(p,"lg")}<div><h2>${esc(p.name)}</h2><div class="sub">${p.pos} · ${esc(p.team)} ${p.home===false?"@":"vs"} ${esc(p.opp)} · ${when(p.start)}</div></div></div><button class="close" id="closebtn">Close</button></div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0">${p.props.map((x,k)=>`<button class="btn" data-pi="${cur.pi}" data-ki="${k}" ${k===cur.ki?'style="border-color:var(--accent);color:var(--accent)"':""}>${esc(x.stat)}</button>`).join(" ")}</div>
     <div class="checker"><div class="row"><label for="lineinput" class="sub" style="font-weight:600;letter-spacing:.06em;text-transform:uppercase">PrizePicks line</label><input type="number" id="lineinput" step="0.5" min="0" value="${cur.line}">
