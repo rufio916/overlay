@@ -72,6 +72,8 @@ table.rt td,table.rt th{white-space:nowrap}
 <script id="data" type="application/json">__DATA__</script>
 <script>
 const D=JSON.parse(document.getElementById("data").textContent);
+// players whose game has already started are dropped (the page can be a few hours old)
+{const open=new Set(D.games.filter(g=>new Date(g.start)>Date.now()).map(g=>String(g.id)));D.players=(D.players||[]).filter(p=>open.has(String(p.game)));}
 const $=s=>document.querySelector(s);
 const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pct=x=>x==null?"–":Math.round(x*100)+"%";

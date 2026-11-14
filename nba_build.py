@@ -259,6 +259,7 @@ def build(local=None, espn_dir=None):
     players = []
     lg_pace = league["pace"] or 100
     for g in slate:
+        if g["state"] == "post": continue  # finished games don't need player props
         for team, opp, home in ((g["away"], g["home"], False), (g["home"], g["away"], True)):
             cur = pb[pb.team_abbreviation == team]; pri = pb0[pb0.team_abbreviation == team]
             rec = cur.groupby("athlete_display_name").minutes.apply(lambda s: s.tail(5).mean()).sort_values(ascending=False)

@@ -69,6 +69,9 @@
 <script id="data" type="application/json">__DATA__</script>
 <script>
 const D=JSON.parse(document.getElementById("data").textContent);
+// drop anything already over: the page can be a few hours old (refreshes run morning and evening), so trim by the clock
+{const tPT=new Date().toLocaleDateString("en-CA",{timeZone:"America/Los_Angeles"});D.games=D.games.filter(g=>g.day>=tPT);
+ const open=new Set(D.games.filter(g=>new Date(g.start)>Date.now()).map(g=>String(g.id)));D.players=(D.players||[]).filter(p=>open.has(String(p.game)));}
 const $=s=>document.querySelector(s);
 const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const TN=ab=>(D.teams[ab]&&D.teams[ab].name)||ab;
