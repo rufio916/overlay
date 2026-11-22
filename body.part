@@ -154,7 +154,18 @@ details.ginj summary::-webkit-details-marker{display:none}
 .pkbarw{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
 .pkbarw i{display:block;height:100%;background:var(--pos)}
 .pkteam .sm{font-size:12px;color:var(--muted)}
-.pklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+.pklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;align-items:start}
+.pkconf{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px;background:var(--raised);color:var(--muted)}
+.pkconf.s{background:var(--accent-soft);color:var(--accent)}.pkconf.l{background:var(--raised);color:var(--fg)}
+.pkln{font-family:var(--mono);font-size:14px;font-weight:600;text-transform:none}
+.pkwhy{grid-column:1/-1;font-size:13px;border-top:1px solid var(--line);padding-top:6px}
+.pkwhy summary{cursor:pointer;font-weight:600;font-size:12px;color:var(--accent);list-style:none}
+.pkwhy summary::-webkit-details-marker{display:none}.pkwhy summary::after{content:" ▾"}.pkwhy[open] summary::after{content:" ▴"}
+.pkwcat{margin-top:8px}.pkwcat>b{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.pkwcat ul{margin:3px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}
+.pkwcat li{display:flex;gap:6px;align-items:baseline;line-height:1.35}
+.pkside{flex:none;font-family:var(--mono);font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;background:var(--raised);color:var(--muted);border:1px solid var(--line)}
+.pkside.on{background:var(--accent-soft);color:var(--accent);border-color:transparent}
 .upset{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px;background:var(--warn-soft);color:var(--warn)}
 .won{color:var(--pos)} .lost{color:var(--neg)}
 .gm-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
@@ -254,10 +265,13 @@ ul.why li{line-height:1.45}
 
   <section id="pickem" hidden>
     <h2 id="pktitle">Pick'em</h2>
-    <p class="lede">Straight-up picks from the betting markets' win chances, tuned to your pool size. Tap a team to change a pick.</p>
+    <p class="lede" id="pklede">Straight-up picks from the betting markets plus a full analysis of every game, tuned to your pool size. Tap a team to change a pick.</p>
     <div id="pkview"></div>
     <details class="info"><summary>How the picks work</summary>
-      <p><b>Win chance</b> comes from each game's moneyline with the sportsbook fee removed. Betting markets are the most accurate free predictor of who wins.</p>
+      <p><b>Win chance</b> starts from each game's moneyline with the sportsbook fee removed. Betting markets are the most accurate free predictor of who wins.</p>
+      <p><b>Full analysis.</b> Every game is checked for: the market (spread, moneyline, total and how the line moved this week), team strength (EPA per play on offense and defense, points for and against, recent form), matchups (pass and run offense vs defense, turnovers), QB changes and injuries, situation (rest and byes, short weeks, west-coast teams playing early in the east, division games, home field, big spreads) and weather. Tap <b>Full analysis</b> on a game to see each factor and which team it favors.</p>
+      <p><b>How it changes the pick.</b> The line already prices most of this, so Overlay only nudges it, by a fraction of a point to a couple of points, for things the line tends to under-price: Overlay's own power rating disagreeing with the spread, line movement, rest, early body-clock games, division and big underdogs, and bad weather. QB news and injuries are shown but not added, because the line moves for them right away.</p>
+      <p><b>Spread mode</b> picks the side the analysis favors against the spread. Spreads are set to be 50/50, so even the strong leans are only about 54-56%. Picks grade as Covered, Lost or Push once games are final, using the latest spread.</p>
       <p><b>Pool size matters.</b> Picking every favorite gets you the most correct picks on average, but in a big pool you'll often tie with many people who did the same. Overlay simulates the week thousands of times against a pool of your size, assuming other players pick favorites a bit more often than the odds justify, and adds an upset only when it raises your chance of finishing first.</p>
       <p><b>Tiebreaker</b> uses the last game's over/under, which is the market's best guess at total points.</p>
       <p>Estimates only. Other players' picks are modeled, not known.</p></details>
@@ -829,13 +843,75 @@ function etDate(day,time){const [y,m,d]=day.split("-").map(Number);
   const nthSun=(mo,n)=>{const f=new Date(Date.UTC(y,mo-1,1)).getUTCDay();return 1+((7-f)%7)+7*(n-1);};
   const dst=(m>3&&m<11)||(m===3&&d>=nthSun(3,2))||(m===11&&d<nthSun(11,1));
   return new Date(`${day}T${time}:00${dst?"-04:00":"-05:00"}`);}
-function pkProb(g){if(g.mlA!=null&&g.mlH!=null){const a=imp(g.mlA),h=imp(g.mlH);return h/(a+h);}
-  if(g.spread!=null)return cdf(g.spread/13.5);return .5;} // home win chance
+function pkMkt(g){if(g.mlA!=null&&g.mlH!=null){const a=imp(g.mlA),h=imp(g.mlH);return h/(a+h);}
+  if(g.spread!=null)return cdf(g.spread/13.5);return .5;} // market home win chance
+// ---- full game analysis: market, team strength, matchups, QB and injuries, situation, weather ----
+// Starts from the betting line (the best single predictor) and nudges it only for things the line tends to
+// under-price; everything else is shown as context. "edge" = points Overlay thinks the home side is better than the spread.
+const WEST=["SF","SEA","LA","LAC","LV","ARI"],EAST=["NE","NYJ","NYG","BUF","MIA","PHI","PIT","BAL","WAS","CLE","CIN","DET","ATL","CAR","TB","JAX","IND"];
+const PKA={};
+const ordn=n=>n+(n%100>=11&&n%100<=13?"th":["th","st","nd","rd"][n%10]||"th");
+function pkAnalyze(g){if(PKA[g.id])return PKA[g.id];
+  const T=D.nflTeams||{},A=T[g.away],H=T[g.home],R={Market:[],Strength:[],Matchups:[],"QB & injuries":[],Situation:[],Weather:[]};
+  const add=(cat,txt,side,pts)=>R[cat].push({txt,side,pts:pts||0});const sp=g.spread;let edge=0;
+  const fav=sp==null?null:sp>0?"H":sp<0?"A":null,dog=fav==="H"?"A":fav==="A"?"H":null,tm=s=>s==="H"?g.home:g.away,sgn=s=>s==="H"?1:-1;
+  // market
+  if(sp!=null)add("Market",`${spreadTxt(g)}${g.total!=null?`, total ${g.total}`:""}. Moneyline makes ${tm(pkMkt(g)>=.5?"H":"A")} ${Math.round(Math.max(pkMkt(g),1-pkMkt(g))*100)}% to win.`,null);
+  if(sp!=null&&g.spreadOpen!=null&&Math.abs(sp-g.spreadOpen)>=.5){const m=sp-g.spreadOpen,s=m>0?"H":"A",w=Math.max(-1,Math.min(1,.3*m));edge+=w;
+    add("Market",`Line moved ${Math.abs(m)} pts toward ${tm(s)} this week (was ${spreadTxt({...g,spread:g.spreadOpen})}). Moves usually follow sharp money.`,s,Math.abs(w));}
+  else if(sp!=null)add("Market","No real line movement this week.",null);
+  // team strength
+  if(A&&H){const hfa=g.neutral?0:1.5,netA=A.epaPlay-A.epaAllowed,netH=H.epaPlay-H.epaAllowed;
+    const epaM=62*(netH-netA),pdM=(H.ppg-H.oppg)-(A.ppg-A.oppg),gp=Math.min(A.games,H.games);
+    const raw=(.5*epaM+.5*pdM)*gp/(gp+6)+hfa;
+    add("Strength",`EPA per play: ${g.away} offense ${ordn(A.epaPlayRank)}, defense ${ordn(A.epaAllowedRank)} · ${g.home} offense ${ordn(H.epaPlayRank)}, defense ${ordn(H.epaAllowedRank)}.`,netH>netA?"H":"A");
+    add("Strength",`Points per game: ${g.away} ${A.ppg} for, ${A.oppg} against (${A.record}) · ${g.home} ${H.ppg} for, ${H.oppg} against (${H.record}).`,(H.ppg-H.oppg)>(A.ppg-A.oppg)?"H":"A");
+    if(sp!=null){const d=raw-sp,w=.25*d;edge+=w;const s=d>0?"H":"A";
+      add("Strength",`Overlay's power rating makes it ${tm(raw>=0?"H":"A")} by ${Math.abs(raw).toFixed(1)}${g.neutral?" (neutral site)":" with home field"}, vs the line's ${Math.abs(sp)}. ${Math.abs(d)<1.5?"Close to the line.":`That leans ${tm(s)}.`}`,Math.abs(d)<1.5?null:s,Math.abs(w));}
+    const form=t=>{const l=(t.last||[]).slice(-3);return l.length?l.reduce((s,x)=>s+x.pts-x.oppPts,0)/l.length:0;};
+    const fA=form(A),fH=form(H),lastTxt=(t)=>(t.last||[]).slice(-5).map(x=>x.won?"W":"L").join("");
+    add("Strength",`Recent form (last 5): ${g.away} ${lastTxt(A)||"–"}, ${fA>=0?"+":""}${fA.toFixed(1)} a game over the last 3 · ${g.home} ${lastTxt(H)||"–"}, ${fH>=0?"+":""}${fH.toFixed(1)}.`,Math.abs(fA-fH)<4?null:fH>fA?"H":"A");
+    // matchups (already inside EPA, so context only)
+    const mu=(off,def,o,dd,kind)=>{const gap=dd[kind+"AllowedRank"]-off[kind+"YpgRank"];// positive gap = offense ranks better than the defense
+      return gap>=10?`${o} ${kind} offense (${ordn(off[kind+"YpgRank"])}) vs a ${ordn(dd[kind+"AllowedRank"])} ${kind} defense: edge ${o}.`:gap<=-10?`${o} ${kind} offense (${ordn(off[kind+"YpgRank"])}) runs into a ${ordn(dd[kind+"AllowedRank"])} ${kind} defense: tough spot.`:null;};
+    for(const [off,def,o,s] of [[A,H,g.away,"A"],[H,A,g.home,"H"]])for(const k of ["pass","rush"]){const t=mu(off,def,o,def,k);if(t)add("Matchups",t,t.includes("edge")?s:(s==="H"?"A":"H"));}
+    if(!R.Matchups.length)add("Matchups","No big pass or run mismatches between these offenses and defenses.",null);
+    const to=(H.take-H.give)-(A.take-A.give);if(Math.abs(to)>=6)add("Matchups",`Turnover margin: ${g.away} ${A.take-A.give>=0?"+":""}${A.take-A.give}, ${g.home} ${H.take-H.give>=0?"+":""}${H.take-H.give}. Turnovers swing games but don't repeat reliably.`,to>0?"H":"A");
+  }else add("Strength","Not enough team stats yet.",null);
+  // QB and injuries (the line already prices these, so they're shown, not added)
+  for(const [s,now_,last_] of [["A",g.qbA,g.qbALast],["H",g.qbH,g.qbHLast]]){const t=tm(s);
+    const inj=(D.injuries[t]||[]).find(x=>x.pos==="QB"&&last_&&norm(x.name)===norm(last_)&&["Out","Doubtful","Questionable"].includes(x.status));
+    if(now_&&last_&&norm(now_)!==norm(last_))add("QB & injuries",`${t} QB change: ${esc(now_)} expected to start over ${esc(last_)}.`,s==="H"?"A":"H");
+    else if(inj)add("QB & injuries",`${t} QB ${esc(inj.name)} is ${inj.status.toLowerCase()} (${esc(inj.injury||"")}).`,s==="H"?"A":"H");
+    else if(now_)add("QB & injuries",`${t}: ${esc(now_)} starting.`,null);
+    const outs=(D.absences[t]||[]).filter(x=>x.status==="Out"&&(x.tgt>=5||x.car>=10)).map(x=>`${esc(x.name)} (${x.pos})`);
+    const n=(D.injuries[t]||[]).filter(x=>["Out","Doubtful"].includes(x.status)).length;
+    if(outs.length||n>=4)add("QB & injuries",`${t}${outs.length?` without ${outs.join(", ")}`:""}${n?`${outs.length?";":""} ${n} out or doubtful on the report`:""}.`,s==="H"?"A":"H");}
+  // situation
+  if(g.restA!=null&&g.restH!=null){const d=Math.max(-7,Math.min(7,g.restH-g.restA));
+    if(Math.abs(d)>=3){const s=d>0?"H":"A",w=.1*Math.abs(d);edge+=sgn(s)*w;add("Situation",`Rest: ${g.away} ${g.restA} days, ${g.home} ${g.restH} days${Math.max(g.restA,g.restH)>=12?" (off a bye)":""}. Edge ${tm(s)}.`,s,w);}
+    else if(Math.min(g.restA,g.restH)<=4)add("Situation","Short week for both teams.",null);}
+  if(g.div&&dog){edge+=sgn(dog)*.4;add("Situation",`Division game. Teams know each other, and division underdogs cover a bit more often. Edge ${tm(dog)}.`,dog,.4);}
+  if(!g.neutral&&g.time&&+g.time.split(":")[0]<14){if(WEST.includes(g.away)&&EAST.includes(g.home)){edge+=.6;add("Situation",`${g.away} travel east for a 1pm ET kickoff (10am body clock). Edge ${g.home}.`,"H",.6);}}
+  if(!g.neutral)add("Situation",`${g.home} at home${g.roof==="dome"||g.roof==="closed"?" indoors":""}. Home field is worth about 1.5 points now.`,"H");
+  else add("Situation","Neutral site: no home field.",null);
+  if(dog&&Math.abs(sp)>=10){edge+=sgn(dog)*.3;add("Situation",`Big spread. Double-digit underdogs cover slightly more often than not. Edge ${tm(dog)}.`,dog,.3);}
+  // weather
+  const wx=g.wx;if(g.roof==="dome"||g.roof==="closed")add("Weather","Indoors: no weather.",null);
+  else if(wx){const bad=wx.flag||(wx.wind!=null&&wx.wind>=15);
+    add("Weather",`Forecast at kickoff: ${wx.temp!=null?wx.temp+"°F, ":""}wind ${wx.wind??"?"} mph${wx.gust?` (gusts ${wx.gust})`:""}${wx.rain?`, ${wx.rain}% rain`:""}${wx.snow?", snow":""}.${bad?" Bad weather shrinks scoring, which helps the underdog and the under.":""}`,bad?dog:null,bad&&dog?.4:0);
+    if(bad&&dog)edge+=sgn(dog)*.4;}
+  else add("Weather","No forecast yet (it arrives a few days before kickoff).",null);
+  const cover=sp==null?.5:Math.max(.4,Math.min(.6,cdf(edge/13.5)));const pickATS=edge>=0?"H":"A";
+  const c=Math.abs(cover-.5),conf=c>=.045?"Strong":c>=.02?"Lean":"Toss-up";
+  const pm=pkMkt(g),pSU=Math.max(.01,Math.min(.99,cdf(zinv(pm)+edge/13.5)));
+  return PKA[g.id]={R,edge,cover,pickATS,conf,pSU,pm};}
+function pkProb(g){return pkAnalyze(g).pSU;} // home win chance after the analysis (market + adjustments)
 const PK_WEEKS=[...new Set(PK.map(g=>g.week))].sort((a,b)=>a-b);
 function pkDefaultWeek(){const now=new Date();for(const w of PK_WEEKS){const first=PK.filter(g=>g.week===w).map(g=>etDate(g.day,g.time)).sort((a,b)=>a-b)[0];if(first>now)return w;}return PK_WEEKS[PK_WEEKS.length-1];}
 if(!PK_WEEKS.includes(state.pkWeek))state.pkWeek=pkDefaultWeek();
 if(!state.pkN)state.pkN=26;
-state.pk=state.pk||{};
+state.pk=state.pk||{};state.pkAts=state.pkAts||{};
 const poolFromSlider=v=>Math.round(Math.exp(Math.log(2)+(Math.log(1000)-Math.log(2))*v/100));
 const sliderFromPool=n=>Math.round(100*(Math.log(n)-Math.log(2))/(Math.log(1000)-Math.log(2)));
 // seeded random so results are stable between renders
@@ -845,7 +921,7 @@ function pkSetup(games){const key=games.map(g=>g.id).join(",");if(pkSimKey===key
   const r=mulberry(12345),S=3000;pkSims=[];for(let i=0;i<S;i++)pkSims.push(games.map(g=>r()<pkProb(g)?1:0));} // 1 = home won
 // chance our picks finish first (ties split) against n-1 others who pick favorites a bit too often
 function pkWinChance(games,picks,n){
-  const q=games.map(g=>{const p=pkProb(g),k=1.6;return Math.pow(p,k)/(Math.pow(p,k)+Math.pow(1-p,k));}); // share of others picking home
+  const q=games.map(g=>{const p=pkMkt(g),k=1.6;return Math.pow(p,k)/(Math.pow(p,k)+Math.pow(1-p,k));}); // share of others picking home
   let tot=0;const G=games.length;
   for(const out of pkSims){let ours=0;const dist=new Float64Array(G+1);dist[0]=1;
     for(let i=0;i<G;i++){const hw=out[i]===1;if((picks[i]===1)===hw)ours++;const pc=hw?q[i]:1-q[i];
@@ -861,49 +937,68 @@ function pkOptimize(games,n){const fav=games.map(g=>pkProb(g)>=.5?1:0);let best=
   return{picks:best,w:bestW,favW:pkWinChance(games,fav,n)};}
 let pkTimer=null;
 const pctTxt=x=>x<.001?"<0.1%":(x*100).toFixed(x<.1?1:0)+"%";
+function pkWhy(g,a,pickSide){const tag=s=>s?`<span class="pkside${s===pickSide?" on":""}">${s==="H"?g.home:g.away}</span>`:"";
+  const body=Object.entries(a.R).filter(([,l])=>l.length).map(([cat,l])=>`<div class="pkwcat"><b>${cat}</b><ul>${l.map(x=>`<li>${tag(x.side)}<span>${x.txt}${x.pts>=.05?` <em class="sub">(${x.pts.toFixed(1)} pt)</em>`:""}</span></li>`).join("")}</ul></div>`).join("");
+  return `<details class="pkwhy"><summary>Full analysis</summary>${body}<p class="sub" style="margin:6px 0 0">Overlay's edge vs the spread: ${Math.abs(a.edge)<.05?"none":`${Math.abs(a.edge).toFixed(1)} pts toward ${a.edge>0?g.home:g.away}`}. Points in brackets are what each factor added.</p></details>`;}
+function atsTxt(g,side){if(g.spread==null)return"no line";const s=side==="H"?-g.spread:g.spread;return s===0?"PK":(s>0?"+":"")+s;}
 function renderPickem(){
-  const w=state.pkWeek;const games=PK.filter(g=>g.week===w);
+  const w=state.pkWeek,ats=state.pkMode==="ats";const games=PK.filter(g=>g.week===w);
   $("#pktitle").textContent=`Week ${w} pick'em`;
+  $("#pklede").textContent=ats?"Against-the-spread picks from a full analysis of every game. Tap a team to change a pick; tap Full analysis to see why.":"Straight-up picks from the betting markets plus a full analysis of every game, tuned to your pool size. Tap a team to change a pick.";
   if(!games.length){$("#pkview").innerHTML='<p class="sub">No games found for this week yet.</p>';return;}
-  pkSetup(games);const n=state.pkN;
-  const opt=pkOptimize(games,n);
-  const saved=state.pk[w]||{};const picks=games.map((g,i)=>saved[g.id]!=null?saved[g.id]:opt.picks[i]);
-  const winNow=pkWinChance(games,picks,n);const exp=games.reduce((s,g,i)=>s+(picks[i]?pkProb(g):1-pkProb(g)),0);
-  const upsets=games.filter((g,i)=>(picks[i]===1)!==(pkProb(g)>=.5)).length;
-  const last=[...games].sort((a,b)=>etDate(a.day,a.time)-etDate(b.day,b.time)).at(-1);
-  const now=new Date();
-  const changed=Object.keys(saved).length>0;
+  const now=new Date();const last=[...games].sort((a,b)=>etDate(a.day,a.time)-etDate(b.day,b.time)).at(-1);
   const weekBtns=PK_WEEKS.map(x=>`<button data-pkw="${x}" aria-pressed="${x===w}">Week ${x}</button>`).join("");
-  let h=`<div class="pkbar"><div class="subnav" style="margin:0">${weekBtns}</div>
+  const modeBtns=`<div class="subnav" style="margin:0" role="group" aria-label="Pick type"><button data-pkm="su" aria-pressed="${!ats}">Straight up</button><button data-pkm="ats" aria-pressed="${ats}">Spread</button></div>`;
+  const store=ats?state.pkAts:state.pk;const saved=store[w]||{};const changed=Object.keys(saved).length>0;
+  const tieb=`<div><span>Tiebreaker · ${last.away} @ ${last.home}</span><b>${last.total!=null?Math.round(last.total):"–"} pts</b></div>`;
+  let picks,h,opt;const an=games.map(pkAnalyze);
+  if(ats){picks=games.map((g,i)=>saved[g.id]!=null?saved[g.id]:(an[i].pickATS==="H"?1:0));
+    const pc=(i)=>picks[i]?an[i].cover:1-an[i].cover;const exp=games.reduce((s,g,i)=>s+(g.spread!=null?pc(i):.5),0);
+    const fin=games.map((g,i)=>{if(g.scoreA==null||g.scoreH==null||g.spread==null)return null;const m=g.scoreH-g.scoreA-g.spread;return m===0?"P":((m>0)===(picks[i]===1))?"W":"L";});
+    const rec=["W","L","P"].map(k=>fin.filter(x=>x===k).length);
+    h=`<div class="pkbar">${modeBtns}<div class="subnav" style="margin:0">${weekBtns}</div>${changed?'<button class="btn" id="pkreset">Reset to recommended</button>':""}<button class="btn" id="pkcopy">Copy picks</button></div>
+    <div class="pksum"><div><span>Expected correct</span><b>${exp.toFixed(1)} / ${games.length}</b><span style="text-transform:none;letter-spacing:0">a coin flip gets ${(games.length/2).toFixed(1)}</span></div>
+      <div><span>Strong leans</span><b>${an.filter(a=>a.conf==="Strong").length}</b><span style="text-transform:none;letter-spacing:0">${an.filter(a=>a.conf==="Lean").length} leans · ${an.filter(a=>a.conf==="Toss-up").length} toss-ups</span></div>
+      ${rec[0]+rec[1]+rec[2]?`<div><span>This week so far</span><b>${rec[0]}-${rec[1]}${rec[2]?`-${rec[2]}`:""}</b></div>`:""}${tieb}</div>
+    <p class="sub" style="margin:-4px 0 12px">Spreads are built to be 50/50, so even good spread picks land around 52-56%. Use the strong leans; treat toss-ups as coin flips.</p>`;
+  }else{pkSetup(games);const n=state.pkN;opt=pkOptimize(games,n);
+    picks=games.map((g,i)=>saved[g.id]!=null?saved[g.id]:opt.picks[i]);
+    const winNow=pkWinChance(games,picks,n);const exp=games.reduce((s,g,i)=>s+(picks[i]?pkProb(g):1-pkProb(g)),0);
+    const upsets=games.filter((g,i)=>(picks[i]===1)!==(pkMkt(g)>=.5)).length;
+    h=`<div class="pkbar">${modeBtns}<div class="subnav" style="margin:0">${weekBtns}</div>
     <label for="pkpool">People in your pool: <span class="rv" id="pkn">${n}</span><input type="range" id="pkpool" min="0" max="100" value="${sliderFromPool(n)}"></label>
     ${changed?'<button class="btn" id="pkreset">Reset to recommended</button>':""}<button class="btn" id="pkcopy">Copy picks</button></div>
     <div class="pksum"><div><span>Expected correct</span><b>${exp.toFixed(1)} / ${games.length}</b></div>
       <div><span>Chance to win your pool</span><b>${pctTxt(winNow)}</b><span style="text-transform:none;letter-spacing:0">all favorites: ${pctTxt(opt.favW)} · random pick: ${pctTxt(1/n)}</span></div>
-      <div><span>Upset picks</span><b>${upsets}</b></div>
-      <div><span>Tiebreaker · ${last.away} @ ${last.home}</span><b>${last.total!=null?Math.round(last.total):"–"} pts</b></div></div>
-    <div class="pklist">`;
-  h+=games.map((g,i)=>{const ph=pkProb(g),pa=1-ph;const started=etDate(g.day,g.time)<=now;const fin=g.scoreA!=null&&g.scoreH!=null;
-    const pick=picks[i];const isUpset=(pick===1)!==(ph>=.5);
+      <div><span>Upset picks</span><b>${upsets}</b></div>${tieb}</div>`;}
+  h+=`<div class="pklist">`+games.map((g,i)=>{const a=an[i],ph=ats?a.cover:pkProb(g),pa=1-ph;const started=etDate(g.day,g.time)<=now;const fin=g.scoreA!=null&&g.scoreH!=null;
+    const pick=picks[i],pickSide=pick===1?"H":"A";const isUpset=!ats&&(pick===1)!==(pkMkt(g)>=.5);
     const qbc=(t)=>{const now_=t==="A"?g.qbA:g.qbH,last_=t==="A"?g.qbALast:g.qbHLast;return now_&&last_&&norm(now_)!==norm(last_)?`<span class="flag warn">QB: ${esc(now_)}</span>`:"";};
     const team=(side)=>{const isH=side==="H",t=isH?g.home:g.away,p=isH?ph:pa,ml=isH?g.mlH:g.mlA,sel=(pick===1)===isH;
-      const res=fin?((isH?g.scoreH>g.scoreA:g.scoreA>g.scoreH)?'<span class="won">W</span>':'<span class="lost">L</span>'):"";
+      let res="";if(fin){if(ats&&g.spread!=null){const m=g.scoreH-g.scoreA-g.spread;res=m===0?'<span class="sub">Push</span>':((m>0)===isH)?'<span class="won">Covered</span>':'<span class="lost">Lost</span>';}
+        else res=(isH?g.scoreH>g.scoreA:g.scoreA>g.scoreH)?'<span class="won">W</span>':'<span class="lost">L</span>';}
+      const mkt=isH?a.pm:1-a.pm;
+      const line2=ats?`${atsTxt(g,side)} · ${Math.round(p*100)}% to cover`:`${Math.round(p*100)}% to win${ml!=null?` · ${fmtOdds(ml)}`:""}${Math.abs(p-mkt)>=.01?` <span title="Market alone: ${Math.round(mkt*100)}%">(mkt ${Math.round(mkt*100)})</span>`:""}`;
       return `<button class="pkteam" data-pkg="${g.id}" data-side="${isH?1:0}" aria-pressed="${sel}" ${started?"disabled":""}>
-        <span class="tn"><span>${t} <span class="sm" style="font-family:var(--body);text-transform:none;font-weight:400">${isH?"home":"away"}</span></span><span>${res||(sel?"✓":"")}</span></span>
+        <span class="tn"><span>${t}${ats?` <span class="pkln">${atsTxt(g,side)}</span>`:""} <span class="sm" style="font-family:var(--body);text-transform:none;font-weight:400">${isH?"home":"away"}</span></span><span>${res||(sel?"✓":"")}</span></span>
         <span class="pkbarw"><i style="width:${Math.round(p*100)}%"></i></span>
-        <span class="sm">${Math.round(p*100)}% to win${ml!=null?` · ${fmtOdds(ml)}`:""}${fin?` · ${isH?g.scoreH:g.scoreA}`:""}</span>${qbc(isH?"H":"A")}</button>`;};
-    return `<div class="pkgame">${team("A")}${team("H")}<div class="meta2"><span>${kick(g)}${g.spread!=null?" · "+spreadTxt(g):""}</span>${isUpset?'<span class="upset">Upset pick</span>':""}${started&&!fin?'<span class="sub">Locked</span>':""}</div></div>`;}).join("")+`</div>`;
+        <span class="sm">${line2}${fin?` · ${isH?g.scoreH:g.scoreA}`:""}</span>${qbc(isH?"H":"A")}</button>`;};
+    const confTag=ats?`<span class="pkconf ${a.conf==="Strong"?"s":a.conf==="Lean"?"l":"t"}">${a.conf}</span>`:(Math.abs(a.edge)>=1?`<span class="pkconf l" title="The analysis moved the market's win chance">Analysis: ${a.edge>0?g.home:g.away}</span>`:"");
+    return `<div class="pkgame">${team("A")}${team("H")}<div class="meta2"><span>${kick(g)}${!ats&&g.spread!=null?" · "+spreadTxt(g):""}${g.total!=null?` · O/U ${g.total}`:""}</span><span style="display:flex;gap:6px;align-items:center">${confTag}${isUpset?'<span class="upset">Upset pick</span>':""}${started&&!fin?'<span class="sub">Locked</span>':""}</span></div>${pkWhy(g,a,pickSide)}</div>`;}).join("")+`</div>`;
   $("#pkview").innerHTML=h;
-  $("#pkpool").oninput=e=>{const v=poolFromSlider(+e.target.value);$("#pkn").textContent=v;clearTimeout(pkTimer);pkTimer=setTimeout(()=>{state.pkN=v;save();renderPickem();},250);};
-  const rs=$("#pkreset");if(rs)rs.onclick=()=>{delete state.pk[w];save();renderPickem();};
-  $("#pkcopy").onclick=()=>{const txt=`Week ${w} picks: `+games.map((g,i)=>picks[i]?g.home:g.away).join(", ")+(last.total!=null?`\nTiebreaker (${last.away} @ ${last.home}): ${Math.round(last.total)}`:"");
+  const pool=$("#pkpool");if(pool)pool.oninput=e=>{const v=poolFromSlider(+e.target.value);$("#pkn").textContent=v;clearTimeout(pkTimer);pkTimer=setTimeout(()=>{state.pkN=v;save();renderPickem();},250);};
+  const rs=$("#pkreset");if(rs)rs.onclick=()=>{delete store[w];save();renderPickem();};
+  $("#pkcopy").onclick=()=>{const txt=`Week ${w} ${ats?"spread ":""}picks: `+games.map((g,i)=>{const s=picks[i]?"H":"A";return (s==="H"?g.home:g.away)+(ats?" "+atsTxt(g,s):"");}).join(", ")+(last.total!=null?`\nTiebreaker (${last.away} @ ${last.home}): ${Math.round(last.total)}`:"");
     (navigator.clipboard?.writeText(txt)||Promise.reject()).then(()=>toast("Picks copied"),()=>toast("Copy not allowed here"));};
 }
 document.addEventListener("click",e=>{
   const wb=e.target.closest("[data-pkw]");if(wb){state.pkWeek=+wb.dataset.pkw;save();renderPickem();return;}
-  const tb=e.target.closest(".pkteam");if(tb&&!tb.disabled){const w=state.pkWeek,games=PK.filter(g=>g.week===w);pkSetup(games);
-    const opt=pkOptimize(games,state.pkN);const i=games.findIndex(g=>g.id===tb.dataset.pkg);const v=+tb.dataset.side;
-    state.pk[w]=state.pk[w]||{};if(opt.picks[i]===v)delete state.pk[w][tb.dataset.pkg];else state.pk[w][tb.dataset.pkg]=v;
-    if(!Object.keys(state.pk[w]).length)delete state.pk[w];save();renderPickem();}
+  const mb=e.target.closest("[data-pkm]");if(mb){state.pkMode=mb.dataset.pkm;save();renderPickem();return;}
+  const tb=e.target.closest(".pkteam");if(tb&&!tb.disabled){const w=state.pkWeek,ats=state.pkMode==="ats",games=PK.filter(g=>g.week===w);
+    const i=games.findIndex(g=>g.id===tb.dataset.pkg);const v=+tb.dataset.side;let rec;
+    if(ats)rec=pkAnalyze(games[i]).pickATS==="H"?1:0;else{pkSetup(games);rec=pkOptimize(games,state.pkN).picks[i];}
+    const store=ats?state.pkAts:state.pk;store[w]=store[w]||{};if(rec===v)delete store[w][tb.dataset.pkg];else store[w][tb.dataset.pkg]=v;
+    if(!Object.keys(store[w]).length)delete store[w];save();renderPickem();}
 });
 
 // ---------- wiring ----------

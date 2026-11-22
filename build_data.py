@@ -261,13 +261,21 @@ def build(week=None, local_dir=None):
 
     # ---- pick'em: this week and next, with moneylines (free, from the nflverse schedule) ----
     pickem = []
+    try:  # the first spread we saw for each game, so the page can show how the line has moved this week
+        opened = {x["id"]: x.get("spreadOpen", x.get("spread")) for x in (json.load(open(PREV_PATH)).get("pickem") or [])} if PREV_PATH and os.path.exists(PREV_PATH) else {}
+    except Exception:
+        opened = {}
+    wx_of = {e["id"]: e.get("wx") for e in games_out}
     for g in games[games.week.isin([week, week + 1]) & (games.game_type == "REG")].sort_values(["gameday", "gametime"]).itertuples():
         pickem.append({"id": g.game_id, "week": int(g.week), "day": g.gameday, "time": g.gametime, "away": g.away_team, "home": g.home_team,
                        "mlA": None if pd.isna(g.away_moneyline) else int(g.away_moneyline), "mlH": None if pd.isna(g.home_moneyline) else int(g.home_moneyline),
                        "spread": r1(g.spread_line), "total": r1(g.total_line),
                        "qbA": g.away_qb_name if isinstance(g.away_qb_name, str) else None, "qbH": g.home_qb_name if isinstance(g.home_qb_name, str) else None,
                        "qbALast": last_qb(g.away_team), "qbHLast": last_qb(g.home_team),
-                       "scoreA": None if pd.isna(g.away_score) else int(g.away_score), "scoreH": None if pd.isna(g.home_score) else int(g.home_score)})
+                       "scoreA": None if pd.isna(g.away_score) else int(g.away_score), "scoreH": None if pd.isna(g.home_score) else int(g.home_score),
+                       "div": bool(g.div_game), "restA": None if pd.isna(g.away_rest) else int(g.away_rest), "restH": None if pd.isna(g.home_rest) else int(g.home_rest),
+                       "roof": g.roof if isinstance(g.roof, str) else None, "neutral": g.location == "Neutral", "wx": wx_of.get(g.game_id)})
+        pk = pickem[-1]; pk["spreadOpen"] = opened.get(g.game_id) if opened.get(g.game_id) is not None else pk["spread"]
 
     return {
         "nflTeams": nfl_teams,
@@ -476,12 +484,13 @@ PT = ZoneInfo("America/Los_Angeles")
 
 
 def _pull_games(wk, now_pt):
-    """Games whose props this pull buys. Thursday pulls only cover Thursday-Saturday games
-    (Thursday night, Thanksgiving/Black Friday, December Saturdays); Sunday pulls cover the rest."""
+    """Games whose props this pull buys. Midweek pulls only cover games through Saturday
+    (Thursday night, Thanksgiving/Black Friday, December Saturdays); Sunday pulls cover the rest.
+    The Wednesday pull only runs in weeks with a Wednesday game, and then the Thursday pull is skipped."""
     today = now_pt.strftime("%Y-%m-%d")
     left = wk[wk.gameday >= today]
-    if now_pt.weekday() == 3:
-        sat = (now_pt + timedelta(days=2)).strftime("%Y-%m-%d")
+    if now_pt.weekday() in (2, 3):  # Wednesday (only when there's a Wednesday game) or Thursday
+        sat = (now_pt + timedelta(days=5 - now_pt.weekday())).strftime("%Y-%m-%d")
         left = left[left.gameday <= sat]
     return left
 
@@ -572,10 +581,33 @@ def game_ev(lines, games_out):
         e["ev"].sort(key=lambda r: -r["ev"])
 
 
+def _no_pull(wk, status):
+    """Keep the last lines (or an empty set with the credit count) without spending anything."""
+    kept = _carry_over(wk, status)
+    if kept: return kept
+    try:
+        po = (json.load(open(PREV_PATH)).get("odds") or {}) if PREV_PATH and os.path.exists(PREV_PATH) else {}
+        return {"lines": [], "odds": {"status": "no lines this week yet", "remaining": po.get("remaining"), "used": po.get("used"), "fetchedLast": po.get("fetched") or po.get("fetchedLast")}}
+    except Exception:
+        return {"lines": [], "odds": {"status": "no lines this week yet"}}
+
+
 def odds_block(wk, players):
     if os.environ.get("ODDS_API_KEY"):
         left = _credits_left_guess()
         now_pt = datetime.now(PT)
+        today_pt = now_pt.strftime("%Y-%m-%d")
+        if now_pt.weekday() == 2 and not (wk.gameday == today_pt).any():
+            print("Wednesday pull: no Wednesday game this week; nothing to buy", file=sys.stderr)
+            return _no_pull(wk, "carried over")
+        if now_pt.weekday() == 3:
+            try:
+                f = (json.load(open(PREV_PATH)).get("odds") or {}).get("fetched")
+                if f and (datetime.now(timezone.utc) - datetime.fromisoformat(f)).total_seconds() < 40 * 3600:
+                    print("Thursday pull: lines were already pulled Wednesday for these games; skipping", file=sys.stderr)
+                    return _no_pull(wk, "carried over")
+            except Exception:
+                pass
         n = len(_pull_games(wk, now_pt))
         have = left if left is not None else MONTHLY_CREDITS
         plan = None  # all stat types if the month's remaining pulls still fit, else the 4 core ones, else skip
