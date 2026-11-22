@@ -19,7 +19,7 @@ ET, PT = ZoneInfo("America/New_York"), ZoneInfo("America/Los_Angeles")
 BREAK_EVEN = 0.542  # 6-pick Flex
 SHARP = ["pinnacle", "fanduel", "draftkings", "betmgm", "espnbet", "betrivers", "bovada"]
 BOOKW = {"pinnacle": 3, "fanduel": 1.5, "draftkings": 1.5, "betmgm": 1, "espnbet": 1, "betrivers": 1, "bovada": .5}
-NFL_COL = {"Pass Yds": "passing_yards", "Rush Yds": "rushing_yards", "Rec Yds": "receiving_yards", "Receptions": "receptions"}
+NFL_COL = {"Pass Yds": "passing_yards", "Rush Yds": "rushing_yards", "Rec Yds": "receiving_yards", "Receptions": "receptions", "Pass Att": "attempts", "Rush Att": "carries"}
 NFL_PICKS_PER_GAME = 3     # Overlay's NFL picks: best 3 props (54%+) in each game
 BLEND = 0.5                # shown/recorded chance = half Overlay's model, half DraftKings (the model alone ran overconfident)
 NHL_PROPS_PER_DAY = 8
@@ -60,8 +60,8 @@ def load_json(path, default):
 
 # ---------------- NFL: same hit-chance math as the NFL page ----------------
 def nfl_sd(pr):
-    k = .42 if pr["stat"] == "Receptions" else .24 if pr["stat"] == "Pass Yds" else .5
-    return max(math.sqrt(.5 * pr["sd"] ** 2 + .5 * (k * max(pr["proj"], 1)) ** 2), 1 if pr["stat"] == "Receptions" else 5)
+    k = {"Receptions": .42, "Pass Yds": .24, "Pass Att": .18, "Rush Att": .3}.get(pr["stat"], .5)
+    return max(math.sqrt(.5 * pr["sd"] ** 2 + .5 * (k * max(pr["proj"], 1)) ** 2), {"Receptions": 1, "Pass Att": 3, "Rush Att": 2}.get(pr["stat"], 5))
 
 
 def pois_over(m, ln):
@@ -82,7 +82,7 @@ def shift_over(stat, book_line, fair, line, sd):
             if pois_over(m, book_line) > fair: hi = m
             else: lo = m
         return pois_over((lo + hi) / 2, line)
-    s = max(sd, .65 * book_line) if book_line < 30 else sd
+    s = max(sd, .65 * book_line) if book_line < 30 and stat.endswith("Yds") else sd
     return 1 - cdf((line - (book_line + s * zinv(fair))) / s)
 
 

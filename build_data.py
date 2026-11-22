@@ -9,7 +9,7 @@ Usage:  python build_data.py [--week N] [--out data.json] [--local DIR]
 """
 import warnings; warnings.filterwarnings("ignore")
 import argparse, io, json, os, sys, urllib.request, urllib.error
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import pandas as pd
 from zoneinfo import ZoneInfo
 import weather
@@ -25,8 +25,9 @@ FILES = {
 }
 # Which props we track for each position: (label, stat column, Odds API market key)
 MARKETS = {
-    "QB": [("Pass Yds", "passing_yards", "player_pass_yds"), ("Rush Yds", "rushing_yards", "player_rush_yds")],
-    "RB": [("Rush Yds", "rushing_yards", "player_rush_yds"), ("Rec Yds", "receiving_yards", "player_reception_yds"), ("Receptions", "receptions", "player_receptions")],
+    "QB": [("Pass Yds", "passing_yards", "player_pass_yds"), ("Rush Yds", "rushing_yards", "player_rush_yds"), ("Pass Att", "attempts", "player_pass_attempts")],
+    "RB": [("Rush Yds", "rushing_yards", "player_rush_yds"), ("Rec Yds", "receiving_yards", "player_reception_yds"), ("Receptions", "receptions", "player_receptions"),
+           ("Rush Att", "carries", "player_rush_attempts")],
     "WR": [("Rec Yds", "receiving_yards", "player_reception_yds"), ("Receptions", "receptions", "player_receptions")],
     "TE": [("Rec Yds", "receiving_yards", "player_reception_yds"), ("Receptions", "receptions", "player_receptions")],
 }
@@ -466,7 +467,33 @@ LOCAL_DIR = None
 PREV_PATH = None  # previous data.json, so runs without odds keep the last lines for the same week
 
 
-CREDITS_PER_GAME = 4  # one credit per stat type per game; passing up to 10 books counts once
+# One credit per stat type per game; passing up to 10 books counts once.
+CORE_MARKETS = ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"]
+ALL_MARKETS = sorted({m for mk in MARKETS.values() for _, _, m in mk})
+CREDITS_PER_GAME = len(ALL_MARKETS)
+MONTHLY_CREDITS = 500
+PT = ZoneInfo("America/Los_Angeles")
+
+
+def _pull_games(wk, now_pt):
+    """Games whose props this pull buys. Thursday pulls only cover Thursday-Saturday games
+    (Thursday night, Thanksgiving/Black Friday, December Saturdays); Sunday pulls cover the rest."""
+    today = now_pt.strftime("%Y-%m-%d")
+    left = wk[wk.gameday >= today]
+    if now_pt.weekday() == 3:
+        sat = (now_pt + timedelta(days=2)).strftime("%Y-%m-%d")
+        left = left[left.gameday <= sat]
+    return left
+
+
+def _reserve(now_pt, per_game):
+    """Credits to hold back for the scheduled pulls still left this month (after today)."""
+    d, need = now_pt.date() + timedelta(days=1), 0
+    while d.month == now_pt.month:
+        if d.weekday() == 3: need += 4 * per_game + 3   # Thursday: a few games
+        if d.weekday() == 6: need += 13 * per_game + 3  # Sunday: the main slate
+        d += timedelta(days=1)
+    return need
 
 
 def _carry_over(wk, status):
@@ -548,12 +575,20 @@ def game_ev(lines, games_out):
 def odds_block(wk, players):
     if os.environ.get("ODDS_API_KEY"):
         left = _credits_left_guess()
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        cost = CREDITS_PER_GAME * int((wk.gameday >= today).sum()) + 3  # games already played aren't pulled; +3 for all game lines
-        print(f"odds pull estimate: ~{cost} credits; credits left: {left if left is not None else 'unknown (new month)'}", file=sys.stderr)
-        if left is not None and left < cost + 2:
+        now_pt = datetime.now(PT)
+        n = len(_pull_games(wk, now_pt))
+        have = left if left is not None else MONTHLY_CREDITS
+        plan = None  # all stat types if the month's remaining pulls still fit, else the 4 core ones, else skip
+        for mk in (ALL_MARKETS, CORE_MARKETS):
+            cost = len(mk) * n + 3
+            if have - cost - 2 >= _reserve(now_pt, len(mk)): plan = mk; break
+        if plan is None and now_pt.weekday() == 6 and have >= len(CORE_MARKETS) * n + 5:
+            plan = CORE_MARKETS  # Sunday is the main slate: spend on it even if later pulls get skipped
+        print(f"odds: {n} games to pull, {have} credits left, plan: {len(plan) if plan else 0} stat types", file=sys.stderr)
+        if plan is None:
             print(f"only {left} odds credits left; keeping last lines until the monthly reset", file=sys.stderr)
-            return _carry_over(wk, "skipped: low credits") or {"lines": [], "odds": {"status": "skipped: low credits", "remaining": left}}
+            return _carry_over(wk, "skipped: saving credits") or {"lines": [], "odds": {"status": "skipped: saving credits", "remaining": left}}
+        PULL["markets"], PULL["games"] = plan, set(_pull_games(wk, now_pt).game_id)
     if not os.environ.get("ODDS_API_KEY"):
         try:
             prev = json.load(open(PREV_PATH)) if PREV_PATH and os.path.exists(PREV_PATH) else {}
@@ -590,13 +625,17 @@ def odds_block(wk, players):
     return out
 
 
+PULL = {"markets": None, "games": None}
+
+
 def fetch_lines(wk, players):
     """One request per game. Passing up to 10 bookmakers counts as a single region,
-    so each game costs (number of markets) credits: 4 markets x ~14 games = ~56 credits."""
+    so each game costs (number of markets) credits: 6 markets x ~13 games = ~78 credits."""
     key = os.environ["ODDS_API_KEY"]; base = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl"
     events = _get(f"{base}/events?apiKey={key}") or []
     want = {(TEAM_FULL[g.away_team], TEAM_FULL[g.home_team]): g.game_id for g in wk.itertuples()}
     markets = sorted({m for p in players for pr in p["props"] for m in [pr["market"]]})
+    if PULL["markets"]: markets = [m for m in markets if m in PULL["markets"]]
     books = ",".join(SHARP_BOOKS + DFS_BOOKS)
     lines = []
     try:  # game lines for every game in one call: moneyline + spread + total = 3 credits total
@@ -611,7 +650,7 @@ def fetch_lines(wk, players):
         ODDS_STATUS["errors"].append(f"game lines: {e}"[:200])
     for ev in events:
         gid = want.get((ev["away_team"], ev["home_team"]))
-        if not gid: continue
+        if not gid or (PULL["games"] is not None and gid not in PULL["games"]): continue
         data = _get(f"{base}/events/{ev['id']}/odds?apiKey={key}&bookmakers={books}&markets={','.join(markets)}&oddsFormat=american") or {}
         for bk in data.get("bookmakers", []):
             for m in bk["markets"]:

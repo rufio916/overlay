@@ -20,8 +20,10 @@ Your site is at `https://<your-username>.github.io/overlay/`.
 
 ## Schedule and odds credits
 - Every day ~5pm Pacific: stats and injury reports (free).
-- Thursday ~7am and Sunday ~3am Pacific: fresh PrizePicks + sportsbook prop lines and all NFL game lines (~4 credits per remaining game + 3, ~55-60 per pull, of the 500 free monthly Odds API credits, which reset on the 1st).
-- If there aren't enough credits left for a pull, it's skipped and the last lines are kept until the reset.
+- Thursday ~7am Pacific: prop lines for Thursday-Saturday games only (Thursday night, Thanksgiving, December Saturdays) plus all NFL game lines (~6 credits per game + 3, usually 10-40).
+- Sunday ~3am Pacific: prop lines for the rest of the week's games plus all game lines (~6 credits per game + 3, ~75-80).
+- Six prop types: pass yds, pass attempts, rush yds, rush attempts, rec yds, receptions. Of the 500 free monthly Odds API credits (reset on the 1st).
+- Each pull holds back enough credits for the pulls still left that month. If six types won't fit, it pulls only the four core ones (pass, rush, rec yds and receptions); if that won't fit either, it's skipped and the last lines are kept until the reset.
 - All other runs keep the last lines. For an extra pull: Actions → "Refresh Overlay data" → Run workflow → tick the odds box.
 GitHub's scheduled runs can start a few hours late when GitHub is busy.
 

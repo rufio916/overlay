@@ -324,14 +324,15 @@ const HAS_PREV=(D.linesPrev||[]).length>0;
 const BOOKNAME={pinnacle:"Pinnacle",fanduel:"FanDuel",draftkings:"DraftKings",betmgm:"BetMGM",espnbet:"ESPN Bet",betrivers:"BetRivers",bovada:"Bovada",prizepicks:"PrizePicks",underdog:"Underdog",pick6:"DK Pick6"};
 const BOOKW={pinnacle:3,fanduel:1.5,draftkings:1.5,betmgm:1,espnbet:1,betrivers:1,bovada:.5}; // sharper books count more
 const DFS=["prizepicks","underdog","pick6"];
-function sdFor(pr){const k=pr.stat==="Receptions"?.42:pr.stat==="Pass Yds"?.24:.5;
-  return Math.max(Math.sqrt(.5*pr.sd*pr.sd+.5*Math.pow(k*Math.max(pr.proj,1),2)),pr.stat==="Receptions"?1:5);}
+const SDK={"Receptions":.42,"Pass Yds":.24,"Pass Att":.18,"Rush Att":.3},SDMIN={"Receptions":1,"Pass Att":3,"Rush Att":2};
+function sdFor(pr){const k=SDK[pr.stat]||.5;
+  return Math.max(Math.sqrt(.5*pr.sd*pr.sd+.5*Math.pow(k*Math.max(pr.proj,1),2)),SDMIN[pr.stat]||5);}
 // moving a book's chance from its line to PrizePicks' line: receptions are small counts (Poisson);
 // low yardage lines (backups, change-of-pace backs) are lumpy, so they get a wider spread than a bell curve would
 function poisOver(m,ln){let c=0,t=Math.exp(-m);for(let i=0;i<=Math.floor(ln);i++){if(i)t*=m/i;c+=t;}return 1-c;}
 function shiftOver(stat,bookLine,fair,line,sd){if(Math.abs(bookLine-line)<1e-9)return fair;
   if(stat==="Receptions"){let lo=.01,hi=20;for(let i=0;i<50;i++){const m=(lo+hi)/2;poisOver(m,bookLine)>fair?hi=m:lo=m;}return poisOver((lo+hi)/2,line);}
-  const s=bookLine<30?Math.max(sd,.65*bookLine):sd;return 1-cdf((line-(bookLine+s*zinv(fair)))/s);}
+  const s=bookLine<30&&stat.endsWith("Yds")?Math.max(sd,.65*bookLine):sd;return 1-cdf((line-(bookLine+s*zinv(fair)))/s);}
 function zinv(p){let lo=-8,hi=8;for(let i=0;i<60;i++){const m=(lo+hi)/2;if(cdf(m)<p)lo=m;else hi=m;}return(lo+hi)/2;}
 // every sportsbook's two-sided line for this prop: no-vig over chance at its own line
 function bookLines(p,pr,M=LINES){const ls=M[norm(p.name)+"|"+pr.market];if(!ls)return[];const out=[];
@@ -360,7 +361,7 @@ function erf(x){const t=1/(1+.3275911*Math.abs(x));const y=1-(((((1.061405429*t-
 const cdf=z=>.5*(1+erf(z/Math.SQRT2));
 function modelChance(pr,line,side){const over=1-cdf((line-pr.proj)/sdFor(pr));return side==="More"?over:1-over;}
 function chanceInfo(p,pr,line,side){const m=marketChance(p,pr,line,side);return m?{p:m.p,src:"market",m}:{p:modelChance(pr,line,side),src:"model"};}
-const USE={"Pass Yds":{f:x=>x.att,u:"pass att"},"Rush Yds":{f:x=>x.car,u:"carries"},"Rec Yds":{f:x=>x.tgt,u:"targets"},"Receptions":{f:x=>x.tgt,u:"targets"}};
+const USE={"Pass Yds":{f:x=>x.att,u:"pass att"},"Rush Yds":{f:x=>x.car,u:"carries"},"Rec Yds":{f:x=>x.tgt,u:"targets"},"Receptions":{f:x=>x.tgt,u:"targets"},"Pass Att":{f:x=>x.att,u:"pass att"},"Rush Att":{f:x=>x.car,u:"carries"}};
 function trend(p,stat){const u=p.usage,m=USE[stat];if(!m||u.length<3)return{cls:"flat",txt:"–"};
   const last=u.slice(-2).map(m.f),prev=u.slice(0,-2).map(m.f);const a=last.reduce((s,v)=>s+v,0)/last.length,b=prev.reduce((s,v)=>s+v,0)/prev.length;
   const d=b?(a-b)/b:(a>0?1:0);const pct=Math.round(d*100);const sig=Math.abs(d)>.15&&Math.abs(a-b)>=1;
@@ -370,7 +371,7 @@ function trend(p,stat){const u=p.usage,m=USE[stat];if(!m||u.length<3)return{cls:
 const ROWS=[];
 D.players.forEach((p,pi)=>{p.props.forEach((pr,ki)=>{
   const d=(D.defense[p.opp]||{})[p.pos+"|"+pr.stat];if(!d)return;
-  const MIN={"Rec Yds":p.pos==="RB"?12:20,"Receptions":2,"Rush Yds":p.pos==="QB"?12:20,"Pass Yds":120};
+  const MIN={"Rec Yds":p.pos==="RB"?12:20,"Receptions":2,"Rush Yds":p.pos==="QB"?12:20,"Pass Yds":120,"Pass Att":20,"Rush Att":7};
   if(pr.avg<(MIN[pr.stat]||0))return;
   ROWS.push({p,pr,pi,ki,d,lg:D.league[p.pos+"|"+pr.stat],g:grade(d.rank),price:priceFor(p,pr),prev:HAS_PREV?priceFor(p,pr,LINES_PREV):null});
 });});
@@ -527,19 +528,19 @@ $("#scrim").onclick=closeSheet;
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet();});
 
 // ---------- slip ----------
-const RECV=["Rec Yds","Receptions"];
+const RECV=["Rec Yds","Receptions"],PASS=["Pass Yds","Pass Att"],RUSH=["Rush Yds","Rush Att"];
 function correlations(legs){const out=[];
   for(let i=0;i<legs.length;i++)for(let j=i+1;j<legs.length;j++){const a=legs[i],b=legs[j];const A=a.p,B=b.p;
     const nm=`${A.name} and ${B.name}`;
     if(A.id===B.id){out.push({k:a.side===b.side?"plus":"minus",t:`${A.name}: two picks on the same player ${a.side===b.side?"tend to hit or miss together":"pull against each other"}.`});continue;}
     if(A.game!==B.game)continue;
     const same=A.team===B.team;
-    const qb=[a,b].find(x=>x.p.pos==="QB"&&x.stat==="Pass Yds"),rc=[a,b].find(x=>x!==qb&&RECV.includes(x.stat));
+    const qb=[a,b].find(x=>x.p.pos==="QB"&&PASS.includes(x.stat)),rc=[a,b].find(x=>x!==qb&&RECV.includes(x.stat));
     if(same&&qb&&rc){out.push({k:qb.side===rc.side?"plus":"minus",t:qb.side===rc.side?`${nm}: QB and receiver on the same team. Stacked in the same direction, these tend to hit together.`:`${nm}: QB and his receiver in opposite directions usually conflict.`});continue;}
     if(same&&RECV.includes(a.stat)&&RECV.includes(b.stat)&&a.side==="More"&&b.side==="More"&&A.pos!=="QB"&&B.pos!=="QB"){out.push({k:"minus",t:`${nm} compete for the same targets. Both going over is less likely than it looks.`});continue;}
-    if(same&&a.stat==="Rush Yds"&&b.stat==="Rush Yds"&&A.pos==="RB"&&B.pos==="RB"&&a.side==="More"&&b.side==="More"){out.push({k:"minus",t:`${nm} split the same backfield carries.`});continue;}
-    if(!same&&a.side==="More"&&b.side==="More"&&[a,b].every(x=>x.stat==="Pass Yds"||RECV.includes(x.stat))){out.push({k:"plus",t:`${nm}: passing overs on both sides of the same game. A shootout helps both.`});continue;}
-    if(!same){const rb=[a,b].find(x=>x.p.pos==="RB"&&x.stat==="Rush Yds"&&x.side==="More"),pass=[a,b].find(x=>x!==rb&&x.stat==="Pass Yds"&&x.side==="More");
+    if(same&&RUSH.includes(a.stat)&&RUSH.includes(b.stat)&&A.pos==="RB"&&B.pos==="RB"&&a.side==="More"&&b.side==="More"){out.push({k:"minus",t:`${nm} split the same backfield carries.`});continue;}
+    if(!same&&a.side==="More"&&b.side==="More"&&[a,b].every(x=>PASS.includes(x.stat)||RECV.includes(x.stat))){out.push({k:"plus",t:`${nm}: passing overs on both sides of the same game. A shootout helps both.`});continue;}
+    if(!same){const rb=[a,b].find(x=>x.p.pos==="RB"&&RUSH.includes(x.stat)&&x.side==="More"),pass=[a,b].find(x=>x!==rb&&PASS.includes(x.stat)&&x.side==="More");
       if(rb&&pass)out.push({k:"plus",t:`${rb.p.name} rushing over and ${pass.p.name} passing over fit the same script: one team leads and runs, the other throws to catch up.`});}
   }return out;}
 let undoLegs=null;
@@ -590,7 +591,7 @@ function renderSlip(){setTimeout(renderParlay,0);
 }
 
 // ---------- defense heatmap ----------
-const HEATCOLS=[["QB","Pass Yds"],["QB","Rush Yds"],["RB","Rush Yds"],["RB","Receptions"],["WR","Rec Yds"],["WR","Receptions"],["TE","Rec Yds"]];
+const HEATCOLS=[["QB","Pass Yds"],["QB","Pass Att"],["QB","Rush Yds"],["RB","Rush Yds"],["RB","Rush Att"],["RB","Receptions"],["WR","Rec Yds"],["WR","Receptions"],["TE","Rec Yds"]];
 let heatSort={c:-1,dir:1};let heatPos=matchMedia("(max-width:700px)").matches?"QB":"";
 function renderHeat(){const COLS=HEATCOLS.map((c,i)=>[c,i]).filter(([c])=>!heatPos||c[0]===heatPos);if(heatSort.c>=0&&!COLS.some(([,i])=>i===heatSort.c))heatSort.c=-1;
   document.querySelectorAll("#heatpos button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.p===heatPos));$("#heathead").closest("table").classList.toggle("fit",!!heatPos);
