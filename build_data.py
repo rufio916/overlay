@@ -22,6 +22,7 @@ FILES = {
     "inj": f"{NFLVERSE}/injuries/injuries_{SEASON}.csv",
     "snaps": f"{NFLVERSE}/snap_counts/snap_counts_{SEASON}.csv",
     "team": f"{NFLVERSE}/stats_team/stats_team_week_{SEASON}.csv",
+    "roster": f"{NFLVERSE}/weekly_rosters/roster_weekly_{SEASON}.csv",
 }
 # Which props we track for each position: (label, stat column, Odds API market key)
 MARKETS = {
@@ -117,6 +118,27 @@ def build(week=None, local_dir=None):
     current_team = stats.sort_values("week").groupby("player_id").team.last()
     stats["cur"] = stats.player_id.map(current_team)
 
+    # ---- players who won't play: on IR/PUP/NFI, released, practice squad (weekly rosters), or gone 2+ team games
+    # without being on the injury report. Players on IR drop off the weekly injury report, so the report alone misses them.
+    gone = {}  # player_id -> label
+    try:
+        ros = load("roster", local_dir); ros = ros[ros.week == ros.week.max()]
+        lab = {"RES": "IR", "CUT": "Released", "RET": "Retired", "DEV": "Practice squad", "EXE": "Exempt", "TRD": "Traded", "TRT": "Traded", "TRC": "Traded", "RLS": "Released"}
+        for r in ros[ros.status.isin(list(lab))].itertuples():
+            if isinstance(r.gsis_id, str): gone[r.gsis_id] = lab[r.status]
+        print(f"weekly roster week {int(ros.week.max())}: {len(gone)} players not active", file=sys.stderr)
+    except Exception as ex:
+        print("weekly rosters unavailable:", ex, file=sys.stderr)
+    team_weeks = stats.groupby("team").week.apply(lambda w: sorted(set(w))).to_dict()
+    for pid, logs in stats.groupby("player_id"):
+        if pid in gone: continue
+        t, last_wk, nm = logs.cur.iloc[-1], logs.week.max(), logs.player_display_name.iloc[-1]
+        missed = sum(1 for w in team_weeks.get(t, []) if w > last_wk)
+        if missed >= 2 and (key(nm), t) not in status_of: gone[pid] = "Inactive"
+    for pid, label in gone.items():
+        rows = stats[stats.player_id == pid]
+        if len(rows): status_of.setdefault((key(rows.player_display_name.iloc[-1]), rows.cur.iloc[-1]), label)
+
     # ---- teammates ruled out (Out/Doubtful) who had a real role: what they leave behind ----
     absences = {}  # team -> list of {pid, name, pos, tgt, car, without_weeks}
     for team, lst in injuries.items():
@@ -172,7 +194,7 @@ def build(week=None, local_dir=None):
     for g in wk.itertuples():
         for team, opp, qb_name in ((g.away_team, g.home_team, g.away_qb_name), (g.home_team, g.away_team, g.home_qb_name)):
             for pos, n in TAKE.items():
-                pool = stats[(stats.position == pos) & (stats.cur == team)]
+                pool = stats[(stats.position == pos) & (stats.cur == team) & ~stats.player_id.isin(list(gone))]
                 if pool.empty: continue
                 recent = pool[pool.week >= played_through - 2].groupby("player_id").u.sum().sort_values(ascending=False)
                 pids = list(recent.head(n).index)
@@ -219,7 +241,7 @@ def build(week=None, local_dir=None):
     for g in wk.itertuples():
         games_by_team[g.away_team] = (g.home_team, g.game_id); games_by_team[g.home_team] = (g.away_team, g.game_id)
     for nm in sorted({key(l["player"]) for l in odds["lines"] if l["book"] == "prizepicks"} - tracked):
-        cand = stats[(stats.player_display_name.map(key) == nm) & stats.position.isin(list(MARKETS)) & stats.cur.isin(list(games_by_team))]
+        cand = stats[(stats.player_display_name.map(key) == nm) & stats.position.isin(list(MARKETS)) & stats.cur.isin(list(games_by_team)) & ~stats.player_id.isin(list(gone))]
         if cand.empty: continue
         r = cand.sort_values("week").iloc[-1]
         opp, gid = games_by_team[r.cur]
@@ -335,7 +357,7 @@ def build_fantasy(stats, games, wk, week, defense_fp, league_fp, status_of, abse
             mf = min(1.2, max(0.8, (d["avg"] / league_fp[pos]) ** 0.5)) if d else 1.0
             ef = min(1.15, max(0.85, (imp_of[team] / team_avg[team]) ** 0.4)) if team in imp_of and team_avg.get(team) else 1.0
             proj = base * mf * ef
-            if status in ("Out",): proj = 0.0
+            if status in ("Out", "IR", "Released", "Retired", "Practice squad", "Exempt", "Inactive"): proj = 0.0
             elif status == "Doubtful": proj *= 0.25
         else:
             d, proj = None, 0.0
@@ -499,7 +521,7 @@ def _reserve(now_pt, per_game):
     """Credits to hold back for the scheduled pulls still left this month (after today)."""
     d, need = now_pt.date() + timedelta(days=1), 0
     while d.month == now_pt.month:
-        if d.weekday() == 3: need += 4 * per_game + 3   # Thursday: a few games
+        if d.weekday() == 3 and now_pt.weekday() != 2: need += 4 * per_game + 3   # Thursday: a few games (skipped after a Wednesday pull)
         if d.weekday() == 6: need += 13 * per_game + 3  # Sunday: the main slate
         d += timedelta(days=1)
     return need
