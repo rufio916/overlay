@@ -234,6 +234,7 @@ ul.why li{line-height:1.45}
     <div class="cards" id="matchcards"></div>
     <details class="info"><summary>How to read this</summary>
       <p><b>Hit chance</b> is how likely the sportsbooks think the pick is to hit: a blend of up to 7 books (Pinnacle, FanDuel, DraftKings, BetMGM, ESPN Bet, BetRivers, Bovada) with their fee removed, counting the sharpest books most. "Books 73.5" under a line means the sportsbooks' average line is at least a point away from PrizePicks, which is usually where the value is. It's <b>green</b> when it beats what your slip type needs to break even, about 54% for a 6-pick Flex. "adj" means the book's line was a little different from PrizePicks, so Overlay adjusted it.</p>
+      <p><b>Calibrated.</b> Every chance is then adjusted by Overlay's own track record: if picks it called 60% have really hit 55%, it shows 55%. Overs get marked down a little more, because they have hit less often than unders. The adjustment updates itself as picks are graded.</p>
       <p><b>Our proj</b> is Overlay's own rough estimate from a handful of games. It's a lean, not a price. When it disagrees with the hit chance, trust the hit chance.</p>
       <p><b>▲ / ▼ under a line or hit chance</b> shows how it moved since the previous odds pull (Thursday → Sunday). Lines that move usually follow injury news or sharp money.</p>
       <p><b>Matchup</b> grades how much this defense allows to the position: A allows the most, F the least. Hover or open the player for the numbers.</p>
@@ -374,7 +375,12 @@ function grade(rank){return rank>=26?"A":rank>=20?"B":rank>=13?"C":rank>=7?"D":"
 function erf(x){const t=1/(1+.3275911*Math.abs(x));const y=1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-.284496736)*t+.254829592)*t*Math.exp(-x*x);return x>=0?y:-y;}
 const cdf=z=>.5*(1+erf(z/Math.SQRT2));
 function modelChance(pr,line,side){const over=1-cdf((line-pr.proj)/sdFor(pr));return side==="More"?over:1-over;}
-function chanceInfo(p,pr,line,side){const m=marketChance(p,pr,line,side);return m?{p:m.p,src:"market",m}:{p:modelChance(pr,line,side),src:"model"};}
+const CALIB=__CALIB__;
+// what our track record says a stated chance really hits (fitted on graded picks; see the Track record)
+function calib(sport,p,side){const k=CALIB[sport];if(!k||p==null)return p;const c=Math.min(Math.max(p,.01),.99);return 1/(1+Math.exp(-(k.a+k.b*Math.log(c/(1-c))+(side==="More"?k.c:0))));}
+function nbOver(m,ratio,line){m=Math.max(m,.01);if(ratio<=1.02){let c=0,t=Math.exp(-m);for(let i=0;i<=Math.floor(line);i++){if(i)t*=m/i;c+=t;}return 1-c;}
+  const r=m/(ratio-1),q=m/(r+m);let t=Math.pow(1-q,r),c=0;for(let k=0;k<=Math.floor(line);k++){if(k)t*=(k-1+r)/k*q;c+=t;}return Math.max(0,1-c);}
+function chanceInfo(p,pr,line,side){const m=marketChance(p,pr,line,side);return m?{p:calib("nfl",m.p,side),raw:m.p,src:"market",m}:{p:calib("nfl",modelChance(pr,line,side),side),src:"model"};}
 const USE={"Pass Yds":{f:x=>x.att,u:"pass att"},"Rush Yds":{f:x=>x.car,u:"carries"},"Rec Yds":{f:x=>x.tgt,u:"targets"},"Receptions":{f:x=>x.tgt,u:"targets"},"Pass Att":{f:x=>x.att,u:"pass att"},"Rush Att":{f:x=>x.car,u:"carries"}};
 function trend(p,stat){const u=p.usage,m=USE[stat];if(!m||u.length<3)return{cls:"flat",txt:"–"};
   const last=u.slice(-2).map(m.f),prev=u.slice(0,-2).map(m.f);const a=last.reduce((s,v)=>s+v,0)/last.length,b=prev.reduce((s,v)=>s+v,0)/prev.length;

@@ -19,6 +19,7 @@ SITE = "https://site.api.espn.com/apis/site/v2/sports/football/college-football"
 CONF = {"1": "ACC", "4": "Big 12", "5": "Big Ten", "8": "SEC", "9": "Pac-12", "12": "C-USA", "15": "MAC",
         "17": "Mountain West", "18": "Independent", "37": "Sun Belt", "151": "American"}
 LAM, CAP = 5.0, 28           # ridge strength and blowout cap for the margin model
+SPREAD_LEANS = False   # see the note where leans are built
 LEAN_SPREAD, LEAN_TOTAL = 6, 6  # gaps (points) that count as a lean
 
 
@@ -253,7 +254,9 @@ def build(local=None, cache_path="cfb_box.json"):
         if o:
             g["pH"] = no_vig(o.get("mlH"), o.get("mlA"))
             if g["pH"] is None and o.get("spreadH") is not None: g["pH"] = round(norm_cdf(-o["spreadH"] / 15.5), 3)
-            if o.get("spreadH") is not None and h in fbs and a in fbs:
+            # Spread leans are off (Nov 27): they went 7-22, mostly big underdogs that got blown out. The margin model
+            # (this season's scores only) can't tell a bad team from a soft schedule. Back on when it has real ratings.
+            if SPREAD_LEANS and o.get("spreadH") is not None and h in fbs and a in fbs:
                 d = pm + o["spreadH"]  # >0: Overlay likes the home side more than the line does
                 if abs(d) >= LEAN_SPREAD:
                     side = "H" if d > 0 else "A"

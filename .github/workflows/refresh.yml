@@ -66,7 +66,7 @@ jobs:
       - name: "Today page + track record (free: grades logged picks from box scores)"
         run: |
           python assemble.py nfl; python assemble.py nba; python assemble.py cfb
-          if python tracker.py --nfl data.json --nba nba.json --cfb cfb.json --nhl nhl.json --cbb cbb.json --history history.json --out today.json; then python assemble.py today; else echo "Tracker failed; keeping the last Today page"; fi
+          if python tracker.py --nfl data.json --nba nba.json --cfb cfb.json --nhl nhl.json --cbb cbb.json --history history.json --out today.json; then python assemble.py all; else echo "Tracker failed; keeping the last Today page"; fi
       - run: |
           git config user.name "overlay-bot"
           git config user.email "overlay-bot@users.noreply.github.com"

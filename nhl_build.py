@@ -85,6 +85,21 @@ def fetch_props(gid, local):
     return out
 
 
+# Variance / mean for each stat. Game-to-game swings (ice time, power play, score) make counts lumpier than Poisson,
+# which overrated overs (our NHL overs went 16-28 before this).
+DISP = {"Shots on Goal": 1.3, "Points": 1.15, "Assists": 1.1, "Goals": 1.1, "Blocked Shots": 1.4, "Saves": 1.9}
+
+
+def nb_over(m, ratio, line):
+    m = max(m, 0.01)
+    if ratio <= 1.02: return pois_over(m, line)
+    r = m / (ratio - 1); q = m / (r + m); t = (1 - q) ** r; c = 0.0
+    for k in range(int(math.floor(line)) + 1):
+        if k: t *= (k - 1 + r) / k * q
+        c += t
+    return max(0.0, 1 - c)
+
+
 def pois_over(lam, line):
     lam = max(lam, 0.01); c, term = 0.0, math.exp(-lam)
     for i in range(int(math.floor(line)) + 1):
@@ -221,7 +236,7 @@ def build(local=None, cache_path="nhl_box.json"):
                           "log": [{"d": x["date"][5:], "opp": x["opp"], "home": x["home"], "v": x["s"].get(stat, 0)} for x in L[-10:]]}
                     if stat in bk:
                         pr.update(bk[stat])
-                        pr["ours"] = round(pois_over(proj, pr["line"]), 4)
+                        pr["ours"] = round(nb_over(proj, DISP.get(stat, 1.2), pr["line"]), 4)
                     if stat in ("Goals", "Blocked Shots") and stat not in bk: continue
                     props.append(pr)
                 if not props: continue

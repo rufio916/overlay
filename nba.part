@@ -49,6 +49,8 @@
     <div class="slipgrid"><div class="panel" id="sliplegs"></div><div class="panel" id="slipsum"></div></div>
     <div class="slipgrid" style="margin-top:16px"><div class="panel" id="parlegs"></div><div class="panel" id="parsum"></div></div>
     <details class="info"><summary>How these numbers work</summary>
+      <p><b>Player chances</b> are 35% Overlay's projection and 65% DraftKings' price with the fee removed. Stats are modeled as lopsided (lots of ordinary games, the odd big one), not as a bell curve, which used to overrate overs. Overlay only makes a pick when DraftKings leans the same way.</p>
+      <p><b>Calibrated.</b> Every chance is then adjusted by Overlay's own track record: if picks it called 60% have really hit 55%, it shows 55%. Overs get marked down a little more, because they have hit less often than unders. The adjustment updates itself as picks are graded.</p>
       <p>Player chances are Overlay's estimates from his games and the matchup; there are no sportsbook prices for NBA props here. Team-bet chances come from DraftKings' odds with the fee removed.</p>
       <p>Sportsbooks charge a fee on every leg, and a parlay multiplies it, so a parlay's expected return is usually negative unless a leg is mispriced. Legs from the same game can be linked; books often price that in or won't allow it.</p></details>
   </section>
@@ -113,11 +115,18 @@ function teamModel(g){const H=D.teams[g.home],A=D.teams[g.away];if(!H||!A||H.ort
 // ---------- props ----------
 const STATK={"Points":.3,"Rebounds":.35,"Assists":.4,"3-Pointers":.6,"Pts+Reb+Ast":.25};
 function sdFor(pr){const k=STATK[pr.stat]||.35;return Math.max(Math.sqrt(.5*pr.sd*pr.sd+.5*Math.pow(k*Math.max(pr.proj,1),2)),pr.stat==="3-Pointers"?.8:1);}
-function modelOver(pr,line){return 1-cdf((line-pr.proj)/sdFor(pr));}
+const CALIB=__CALIB__;
+// what our track record says a stated chance really hits (fitted on graded picks; see the Track record)
+function calib(sport,p,side){const k=CALIB[sport];if(!k||p==null)return p;const c=Math.min(Math.max(p,.01),.99);return 1/(1+Math.exp(-(k.a+k.b*Math.log(c/(1-c))+(side==="More"?k.c:0))));}
+function nbOver(m,ratio,line){m=Math.max(m,.01);if(ratio<=1.02){let c=0,t=Math.exp(-m);for(let i=0;i<=Math.floor(line);i++){if(i)t*=m/i;c+=t;}return 1-c;}
+  const r=m/(ratio-1),q=m/(r+m);let t=Math.pow(1-q,r),c=0;for(let k=0;k<=Math.floor(line);k++){if(k)t*=(k-1+r)/k*q;c+=t;}return Math.max(0,1-c);}
+const ratioOf=pr=>Math.max(1,Math.pow(sdFor(pr),2)/Math.max(pr.proj,.5));
+// lopsided count (negative binomial), not a bell curve: a bell curve overrated overs
+function modelOver(pr,line){return nbOver(pr.proj,ratioOf(pr),line);}
 // books' chance at any line: take DraftKings' line and no-vig chance, find the average that implies, then read off the new line
-function mktOver(pr,line){if(pr.line==null||pr.pOver==null)return null;const sd=sdFor(pr);let lo=-50,hi=50;for(let i=0;i<50;i++){const z=(lo+hi)/2;(1-cdf(-z)>pr.pOver)?hi=z:lo=z;}return 1-cdf((line-(pr.line+sd*lo))/sd);}
-// Overlay's chance = half our model, half the books (the model alone ran overconfident)
-function chance(pr,line,side){const mo=modelOver(pr,line),mk=mktOver(pr,line);const over=mk==null?mo:.5*mo+.5*mk;return side==="More"?over:1-over;}
+function mktOver(pr,line){if(pr.line==null||pr.pOver==null)return null;const r=ratioOf(pr);let lo=.01,hi=200;for(let i=0;i<60;i++){const m=(lo+hi)/2;(nbOver(m,r,pr.line)>pr.pOver)?hi=m:lo=m;}return nbOver((lo+hi)/2,r,line);}
+// Overlay's chance = 35% our model, 65% the books (the model alone ran overconfident), then calibrated on our record
+function chance(pr,line,side){const mo=modelOver(pr,line),mk=mktOver(pr,line);const over=mk==null?mo:.35*mo+.65*mk;return calib("nba",side==="More"?over:1-over,side);}
 function minTrend(p){const u=p.usage.map(x=>x.min);if(u.length<4)return{cls:"flat",txt:u.length?`${(u.reduce((a,b)=>a+b,0)/u.length).toFixed(0)} min`:"–"};
   const a=u.slice(-3).reduce((x,y)=>x+y,0)/3,b=u.slice(0,-3).reduce((x,y)=>x+y,0)/(u.length-3);const d=a-b;
   return{cls:d>=3?"up":d<=-3?"dn":"flat",txt:`${d>=3?"▲ ":d<=-3?"▼ ":""}${a.toFixed(0)} min`};}
@@ -129,7 +138,7 @@ D.players.forEach((p,pi)=>p.props.forEach((pr,ki)=>{const d=(D.dvp[p.opp]||{})[p
 let PPL={};try{PPL=JSON.parse(localStorage.getItem("overlay-nba-pp")||"{}");}catch(e){}
 const savePPL=()=>{try{localStorage.setItem("overlay-nba-pp",JSON.stringify(PPL));}catch(e){}};
 const ppKey=r=>r.p.id+"|"+r.pr.stat;
-function ppPick(pr,ln){const o=chance(pr,ln,"More");return o>=.5?{side:"More",ch:o}:{side:"Less",ch:1-o};}
+function ppPick(pr,ln){const o=chance(pr,ln,"More"),u=chance(pr,ln,"Less");return o>=u?{side:"More",ch:o}:{side:"Less",ch:u};}
 const ppChip=b=>`<span class="pick ${b.side==="More"?"more":"less"}">${b.side}</span> <span class="edge ${b.ch>=state.be?"hot":"cold"}">${Math.round(b.ch*100)}%</span>`;
 function ppBox(r){const ln=PPL[ppKey(r)];return `<span class="ppbox"><input type="number" inputmode="decimal" step="0.5" min="0" placeholder="Line" aria-label="PrizePicks line for ${esc(r.p.name)} ${esc(r.pr.stat)}" data-pp="${esc(ppKey(r))}" data-pi="${r.pi}" data-ki="${r.ki}" value="${ln??""}"><span class="ppres" data-res="${esc(ppKey(r))}">${ln!=null?ppChip(ppPick(r.pr,ln)):""}</span></span>`;}
 function renderMine(){const el=$("#ppmine");if(!el)return;const rows=ROWS.filter(r=>PPL[ppKey(r)]!=null).map(r=>({r,ln:PPL[ppKey(r)],b:ppPick(r.pr,PPL[ppKey(r)])})).sort((a,b)=>b.b.ch-a.b.ch);

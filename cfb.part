@@ -48,7 +48,7 @@ table.rt td,table.rt th{white-space:nowrap}
     <div id="gamedetail"></div>
     <details class="info"><summary>How to read this</summary>
       <p><b>Win chance</b> comes from DraftKings' moneylines with the fee removed. It's the market's number, not ours.</p>
-      <p><b>Overlay's rough number</b> rates every FBS team from this season's scores, adjusted for who they played and home field. It doesn't know about injuries, weather or who's starting at quarterback. In a backtest on weeks 4–9 it was about a coin flip against DraftKings' spreads, so leans are shown for context and tracked on the Today page, not offered as edges.</p></details>
+      <p><b>Overlay's rough number</b> rates every FBS team from this season's scores, adjusted for who they played and home field. It doesn't know about injuries, weather or who's starting at quarterback. In a backtest on weeks 4–9 it was about a coin flip against DraftKings' spreads, so leans are shown for context and tracked on the Today page, not offered as edges. <b>Spread leans are paused</b>: they went 7-22, mostly big underdogs that got blown out. Totals leans stay on.</p></details>
   </section>
   <section id="props" hidden>
     <h2>Player props</h2>

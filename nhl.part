@@ -39,7 +39,7 @@
   </section>
   <section id="props" hidden>
     <h2>Player props</h2>
-    <div class="banner"><b>Type the PrizePicks line in any row</b> to see the side Overlay likes and its chance to hit. The chance blends DraftKings' odds (pulled free twice a day) with Overlay's projection from his shots, points and ice time. Your lines collect below, best first.</div>
+    <div class="banner"><b>Type the PrizePicks line in any row</b> to see the side Overlay likes and its chance to hit. The chance is 65% DraftKings' odds (pulled free twice a day) and 35% Overlay's projection from his shots, points and ice time, adjusted by Overlay's own track record. Your lines collect below, best first.</div>
     <div class="flt"><select id="pgame" aria-label="Game"><option value="">All games</option></select><select id="pstat" aria-label="Stat"><option value="">All stats</option><option>Shots on Goal</option><option>Points</option><option>Assists</option><option>Saves</option><option>Blocked Shots</option><option>Goals</option></select><input id="psearch" type="search" placeholder="Find a player" aria-label="Find a player"></div>
     <div class="panel" id="ppmine" hidden></div>
     <div id="plist" class="plist"></div>
@@ -105,10 +105,17 @@ const pois=(lam,line)=>{lam=Math.max(lam,.01);let c=0,t=Math.exp(-lam);for(let i
 [...new Set(P.map(p=>p.game))].forEach(id=>{const g=GAME[id];if(g)$("#pgame").insertAdjacentHTML("beforeend",`<option value="${id}">${g.away} @ ${g.home}</option>`);});
 $("#pgame").onchange=$("#pstat").onchange=$("#psearch").oninput=renderProps;
 // books' chance at any line: find the average DraftKings' odds imply (Poisson), then read off the new line
-function mktOver(pr,line){if(pr.line==null||pr.pOver==null)return null;let lo=0.01,hi=60;for(let i=0;i<50;i++){const m=(lo+hi)/2;(pois(m,pr.line)>pr.pOver)?hi=m:lo=m;}return pois((lo+hi)/2,line);}
-// Overlay's chance = half our model, half the books (the model alone ran overconfident)
-function overAt(pr,line){const mo=pois(pr.proj,line),mk=mktOver(pr,line);return mk==null?mo:.5*mo+.5*mk;}
-function sideAt(pr,line){const o=overAt(pr,line);return o>=.5?{side:"More",ch:o}:{side:"Less",ch:1-o};}
+function mktOver(pr,line){if(pr.line==null||pr.pOver==null)return null;const r=DISP[pr.stat]||1.2;let lo=0.01,hi=80;for(let i=0;i<60;i++){const m=(lo+hi)/2;(nbOver(m,r,pr.line)>pr.pOver)?hi=m:lo=m;}return nbOver((lo+hi)/2,r,line);}
+// Overlay's chance = 35% our model (lumpier-than-Poisson counts), 65% the books, then calibrated on our record
+const CALIB=__CALIB__;
+// what our track record says a stated chance really hits (fitted on graded picks; see the Track record)
+function calib(sport,p,side){const k=CALIB[sport];if(!k||p==null)return p;const c=Math.min(Math.max(p,.01),.99);return 1/(1+Math.exp(-(k.a+k.b*Math.log(c/(1-c))+(side==="More"?k.c:0))));}
+function nbOver(m,ratio,line){m=Math.max(m,.01);if(ratio<=1.02){let c=0,t=Math.exp(-m);for(let i=0;i<=Math.floor(line);i++){if(i)t*=m/i;c+=t;}return 1-c;}
+  const r=m/(ratio-1),q=m/(r+m);let t=Math.pow(1-q,r),c=0;for(let k=0;k<=Math.floor(line);k++){if(k)t*=(k-1+r)/k*q;c+=t;}return Math.max(0,1-c);}
+const DISP={"Shots on Goal":1.3,"Points":1.15,"Assists":1.1,"Goals":1.1,"Blocked Shots":1.4,"Saves":1.9};
+function overAt(pr,line){const mo=nbOver(pr.proj,DISP[pr.stat]||1.2,line),mk=mktOver(pr,line);return mk==null?mo:.35*mo+.65*mk;}
+function chAt(pr,line,side){const o=overAt(pr,line);return calib("nhl",side==="More"?o:1-o,side);}
+function sideAt(pr,line){const o=chAt(pr,line,"More"),u=chAt(pr,line,"Less");return o>=u?{side:"More",ch:o}:{side:"Less",ch:u};}
 function best(pr){if(pr.line==null)return null;const b=sideAt(pr,pr.line);b.mk=b.side==="More"?pr.pOver:1-pr.pOver;return b;}
 let PPL={};try{PPL=JSON.parse(localStorage.getItem("overlay-nhl-pp")||"{}");}catch(e){}
 const savePPL=()=>{try{localStorage.setItem("overlay-nhl-pp",JSON.stringify(PPL));}catch(e){}};
@@ -134,7 +141,7 @@ function bars(L,line){const W=460,H=150,pad={l:28,r:8,t:14,b:36};const n=Math.ma
   const y=v=>pad.t+(H-pad.t-pad.b)*(1-v/max);const bw=(W-pad.l-pad.r)/n;
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Game log">${L.map((v,k)=>`<rect x="${pad.l+k*bw+bw*.22}" y="${y(v.v)}" width="${bw*.56}" height="${Math.max(0,y(0)-y(v.v))}" rx="2" fill="${v.v>line?"var(--pos)":"var(--line)"}"/><text x="${pad.l+k*bw+bw/2}" y="${y(v.v)-4}" text-anchor="middle">${v.v}</text><text x="${pad.l+k*bw+bw/2}" y="${H-20}" text-anchor="middle">${esc(v.d)}</text><text x="${pad.l+k*bw+bw/2}" y="${H-6}" text-anchor="middle" style="fill:var(--fg)">${v.home?"":"@"}${esc(v.opp)}</text>`).join("")}
   <line x1="${pad.l}" x2="${W-pad.r}" y1="${y(line)}" y2="${y(line)}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4"/></svg><div class="sub"><span style="color:var(--accent)">- - -</span> Line ${line}</div>`;}
-function hitsHtml(pr){const hit=v=>cur.side==="More"?v.v>cur.line:v.v<cur.line;const l5=pr.log.slice(-5);const o=overAt(pr,cur.line),mk=mktOver(pr,cur.line);const est=cur.side==="More"?o:1-o;
+function hitsHtml(pr){const hit=v=>cur.side==="More"?v.v>cur.line:v.v<cur.line;const l5=pr.log.slice(-5);const mk=mktOver(pr,cur.line);const est=chAt(pr,cur.line,cur.side);
   return `<div><span>Last 5</span><b>${l5.filter(hit).length}/${l5.length}</b></div><div><span>Last 10</span><b>${pr.log.filter(hit).length}/${pr.log.length}</b></div>${mk!=null?`<div><span>Books</span><b>${pct(cur.side==="More"?mk:1-mk)}</b></div>`:""}<div><span>Overlay</span><b style="color:${est>=BE?"var(--pos)":"var(--fg)"}">${Math.round(est*100)}%</b></div>`;}
 function openPlayer(pi,ki){const pr=P[pi].props[ki];const ln=PPL[P[pi].id+"|"+pr.stat];const L0=ln??pr.line??Math.max(.5,Math.round(pr.proj)-.5);cur={pi,ki,side:sideAt(pr,L0).side,line:L0};drawSheet();$("#sheet").hidden=false;$("#scrim").hidden=false;$("#sheet").scrollTop=0;}
 const ord=n=>n+(n%100>=11&&n%100<=13?"th":({1:"st",2:"nd",3:"rd"}[n%10]||"th"));

@@ -1,6 +1,6 @@
 """Build the self-contained pages: Today (index.html), NFL (nfl.html), NBA (nba.html).
 Usage: python assemble.py [today|nfl|nba|all] [out_path]"""
-import os, re, sys
+import json, os, re, sys
 here = os.path.dirname(os.path.abspath(__file__))
 rd = lambda f: open(os.path.join(here, f)).read()
 PAGES = {"today": ("today.part", "today.json", "index.html", "Overlay"),
@@ -29,11 +29,16 @@ FONTS = ('<link rel="preconnect" href="https://fonts.googleapis.com">\n<link rel
 SW = ('<script>(function(){const a=document.querySelector("nav.sport [aria-current]");if(a&&a.scrollIntoView)a.scrollIntoView({block:"nearest",inline:"center"});})();</script>\n'
       + '<script>if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).catch(()=>{});</script>\n')
 
+def calib():
+    """Per-sport calibration the tracker fitted on graded picks (history.json); {} until it exists."""
+    try: return json.dumps(json.load(open(os.path.join(here, "history.json"))).get("calib") or {})
+    except Exception: return "{}"
+
 def build(name, out=None):
     part, data_f, default_out, title = PAGES[name]
     data = rd(data_f).replace("</", "<\\/")
     shared = "" if name == "nfl" else "\n".join(re.findall(r"<style>.*?</style>", rd("body.part"), re.S))
-    body = re.sub(r'<nav class="sport".*?</nav>', lambda m: nav(name), rd(part), count=1, flags=re.S).replace("__DATA__", data)
+    body = re.sub(r'<nav class="sport".*?</nav>', lambda m: nav(name), rd(part), count=1, flags=re.S).replace("__DATA__", data).replace("__CALIB__", calib())
     page = HEAD + f"<title>{title}</title>\n" + FONTS + rd("style.part") + shared + body + SW
     out = out or os.path.join(here, default_out)
     open(out, "w").write(page)

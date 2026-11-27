@@ -21,7 +21,10 @@ SHARP = ["pinnacle", "fanduel", "draftkings", "betmgm", "espnbet", "betrivers", 
 BOOKW = {"pinnacle": 3, "fanduel": 1.5, "draftkings": 1.5, "betmgm": 1, "espnbet": 1, "betrivers": 1, "bovada": .5}
 NFL_COL = {"Pass Yds": "passing_yards", "Rush Yds": "rushing_yards", "Rec Yds": "receiving_yards", "Receptions": "receptions", "Pass Att": "attempts", "Rush Att": "carries"}
 NFL_PICKS_PER_GAME = 3     # Overlay's NFL picks: best 3 props (54%+) in each game
-BLEND = 0.5                # shown/recorded chance = half Overlay's model, half DraftKings (the model alone ran overconfident)
+BLEND = 0.35               # Overlay's model share of the chance; the rest is DraftKings (the model alone ran overconfident, and lost when DK disagreed)
+PICK_MIN = .53             # a pick must still show at least 53% after calibration
+MODEL_V = 2                # v2 (Nov 27): skewed count distributions, DraftKings must agree, chances calibrated on our own results
+CAL = {}                   # per-sport calibration fitted from graded picks (see fit_calib)
 NHL_PROPS_PER_DAY = 8
 NBA_PROPS_PER_DAY = 8      # Overlay's daily NBA prop picks (biggest matchup boosts)
 NBA_PROP_MIN_CHANCE = .55  # Overlay must give the side at least 55%
@@ -62,6 +65,57 @@ def load_json(path, default):
 def nfl_sd(pr):
     k = {"Receptions": .42, "Pass Yds": .24, "Pass Att": .18, "Rush Att": .3}.get(pr["stat"], .5)
     return max(math.sqrt(.5 * pr["sd"] ** 2 + .5 * (k * max(pr["proj"], 1)) ** 2), {"Receptions": 1, "Pass Att": 3, "Rush Att": 2}.get(pr["stat"], 5))
+
+
+def nb_over(m, ratio, ln):
+    """P(X > ln) for a count with mean m and variance m*ratio (negative binomial; Poisson when ratio ~1).
+    Real stat lines are lopsided: lots of low games and the odd big one, so a bell curve overrates overs."""
+    m = max(m, .01)
+    if ratio <= 1.02: return pois_over(m, ln)
+    r = m / (ratio - 1); q = m / (r + m); t = (1 - q) ** r; c = 0.0
+    for k in range(int(math.floor(ln)) + 1):
+        if k: t *= (k - 1 + r) / k * q
+        c += t
+    return max(0.0, 1 - c)
+
+
+def fit_calib(picks):
+    """Per sport, learn how our stated chances actually turned out: logit(hit) = a + b*logit(chance) + c*[More].
+    Ridge pulls it toward 'trust the number' (a=0, b=1, c=0) so a small sample can't swing it far.
+    v2 picks count fully; older (v1 model) picks count half."""
+    out = {}
+    for sp in ("nfl", "nba", "nhl"):
+        rows = []
+        for p in picks.values():
+            if p["sport"] != sp or "stat" not in p or p.get("result") not in ("win", "loss"): continue
+            c = min(max(p.get("raw", p["chance"]), .01), .99)
+            rows.append(([1.0, math.log(c / (1 - c)), 1.0 if p["side"] == "More" else 0.0], 1.0 if p["result"] == "win" else 0.0, 1.0 if p.get("v") == MODEL_V else .5))
+        th, P, lam = [0.0, 1.0, 0.0], [0.0, 1.0, 0.0], [20.0, 60.0, 20.0]
+        for _ in range(25):
+            g = [lam[i] * (P[i] - th[i]) for i in range(3)]; H = [[lam[i] if i == j else 0.0 for j in range(3)] for i in range(3)]
+            for x, y, w in rows:
+                pr = 1 / (1 + math.exp(-sum(t * xi for t, xi in zip(th, x))))
+                for i in range(3):
+                    g[i] += w * (y - pr) * x[i]
+                    for j in range(3): H[i][j] += w * pr * (1 - pr) * x[i] * x[j]
+            for i in range(3):  # Gaussian elimination: H d = g
+                for j in range(i + 1, 3):
+                    f = H[j][i] / H[i][i]
+                    for k in range(3): H[j][k] -= f * H[i][k]
+                    g[j] -= f * g[i]
+            d = [0.0] * 3
+            for i in reversed(range(3)): d[i] = (g[i] - sum(H[i][k] * d[k] for k in range(i + 1, 3))) / H[i][i]
+            th = [t + di for t, di in zip(th, d)]
+        out[sp] = {"a": round(th[0], 4), "b": round(th[1], 4), "c": round(th[2], 4), "n": len(rows)}
+    return out
+
+
+def cal(sport, chance, side):
+    """Calibrated chance for a pick (what our track record says a stated chance really hits)."""
+    k = CAL.get(sport)
+    if not k or chance is None: return chance
+    c = min(max(chance, .01), .99); z = k["a"] + k["b"] * math.log(c / (1 - c)) + (k["c"] if side == "More" else 0)
+    return round(1 / (1 + math.exp(-z)), 4)
 
 
 def pois_over(m, ln):
@@ -238,16 +292,14 @@ def nba_picks(nba):
         for pr in p["props"]:
             if pr.get("line") is None or pr.get("pOver") is None: continue
             sd = max(math.sqrt(.5 * pr["sd"] ** 2 + .5 * (K[pr["stat"]] * max(pr["proj"], 1)) ** 2), .8 if pr["stat"] == "3-Pointers" else 1)
-            if pr["stat"] == "3-Pointers":  # low counts: Poisson fits much better than a bell curve
-                lam = max(pr["proj"], .05); ours = 1 - sum(math.exp(-lam) * lam ** i / math.factorial(i) for i in range(int(math.floor(pr["line"])) + 1))
-            else:
-                ours = 1 - cdf((pr["line"] - pr["proj"]) / sd)
+            ours = nb_over(pr["proj"], max(1.0, sd * sd / max(pr["proj"], .5)), pr["line"])  # lopsided count, not a bell curve
             side = "More" if ours >= pr["pOver"] else "Less"
             ch, mk = (ours, pr["pOver"]) if side == "More" else (1 - ours, 1 - pr["pOver"])
             odds = pr["overOdds"] if side == "More" else pr["underOdds"]
-            if ch < NBA_PROP_MIN_CHANCE or not NBA_PROP_MIN_EDGE <= ch - mk <= NBA_PROP_MAX_EDGE or odds < -160: continue
+            if ch < NBA_PROP_MIN_CHANCE or not NBA_PROP_MIN_EDGE <= ch - mk <= NBA_PROP_MAX_EDGE or odds < -160 or mk < .5: continue  # DraftKings must lean our way too
+            if cal("nba", BLEND * ch + (1 - BLEND) * mk, side) < PICK_MIN: continue
             out.append({"name": p["name"], "id": p["id"], "team": p["team"], "opp": p["opp"], "game": p["game"], "stat": pr["stat"], "line": pr["line"],
-                        "side": side, "odds": odds, "proj": pr["proj"], "chance": round(BLEND * ch + (1 - BLEND) * mk, 4), "model": round(ch, 4), "mkt": round(mk, 4), "edge": round(ch - mk, 4), "img": p.get("img", "")})
+                        "side": side, "odds": odds, "proj": pr["proj"], "raw": round(BLEND * ch + (1 - BLEND) * mk, 4), "chance": cal("nba", BLEND * ch + (1 - BLEND) * mk, side), "model": round(ch, 4), "mkt": round(mk, 4), "edge": round(ch - mk, 4), "img": p.get("img", "")})
     return sorted(out, key=lambda x: -x["edge"])
 
 
@@ -260,9 +312,10 @@ def nhl_picks(nhl):
             side = "More" if pr["ours"] >= pr["pOver"] else "Less"
             ch, mk = (pr["ours"], pr["pOver"]) if side == "More" else (1 - pr["ours"], 1 - pr["pOver"])
             odds = pr["overOdds"] if side == "More" else pr["underOdds"]
-            if ch < NBA_PROP_MIN_CHANCE or not NBA_PROP_MIN_EDGE <= ch - mk <= NBA_PROP_MAX_EDGE or odds < -160: continue
+            if ch < NBA_PROP_MIN_CHANCE or not NBA_PROP_MIN_EDGE <= ch - mk <= NBA_PROP_MAX_EDGE or odds < -160 or mk < .5: continue  # DraftKings must lean our way too
+            if cal("nhl", BLEND * ch + (1 - BLEND) * mk, side) < PICK_MIN: continue
             out.append({"name": p["name"], "id": p["id"], "team": p["team"], "opp": p["opp"], "game": p["game"], "stat": pr["stat"], "line": pr["line"],
-                        "side": side, "odds": odds, "proj": pr["proj"], "chance": round(BLEND * ch + (1 - BLEND) * mk, 4), "model": round(ch, 4), "mkt": round(mk, 4), "edge": round(ch - mk, 4)})
+                        "side": side, "odds": odds, "proj": pr["proj"], "raw": round(BLEND * ch + (1 - BLEND) * mk, 4), "chance": cal("nhl", BLEND * ch + (1 - BLEND) * mk, side), "model": round(ch, 4), "mkt": round(mk, 4), "edge": round(ch - mk, 4)})
     return sorted(out, key=lambda x: -x["edge"])
 
 
@@ -270,6 +323,8 @@ def run(a):
     nfl = load_json(a.nfl, {}); nba = load_json(a.nba, {}); cfb = load_json(a.cfb, {}); nhl = load_json(a.nhl, {}); cbb = load_json(a.cbb, {})
     hist = load_json(a.history, {"picks": {}, "injurySnap": {}, "injuryNews": []})
     picks = hist["picks"]; t_now = now()
+    CAL.clear(); CAL.update(fit_calib(picks)); hist["calib"] = CAL
+    print("calibration:", CAL)
 
     # picks logged before chances were blended: switch them to the blended number (model kept separately)
     for p in picks.values():
@@ -295,11 +350,11 @@ def run(a):
                    "avg": pr["avg"], "game": g["id"], "week": nfl.get("week"), "kickoff": iso(ko), "img": p.get("img", ""), "status": p.get("status", "")}
             if pc and pc["fair"] is not None and pc["n"] >= 2:
                 side = "More" if pc["fair"] >= .5 else "Less"; ch = max(pc["fair"], 1 - pc["fair"])
-                row.update({"line": pc["line"], "side": side, "chance": round(ch, 4), "books": pc["n"]})
-                if ch >= BREAK_EVEN and ko > t_now and fetched and p.get("status") not in ("Out", "Doubtful"):
+                row.update({"line": pc["line"], "side": side, "raw": round(ch, 4), "chance": cal("nfl", ch, side), "books": pc["n"]})
+                if row["chance"] >= PICK_MIN and ko > t_now and fetched and p.get("status") not in ("Out", "Doubtful"):
                     k = f"nfl|{nfl['week']}|{norm(p['name'])}|{pr['stat']}"
                     if k not in picks or picks[k].get("result") is None and datetime.fromisoformat(picks[k]["kickoff"]) > t_now:
-                        picks[k] = {**{x: row[x] for x in ("sport", "name", "team", "opp", "stat", "line", "side", "chance", "game", "week", "kickoff")}, "logged": iso(t_now), "result": None}
+                        picks[k] = {**{x: row[x] for x in ("sport", "name", "team", "opp", "stat", "line", "side", "raw", "chance", "game", "week", "kickoff")}, "v": MODEL_V, "logged": iso(t_now), "result": None}
             nfl_rows.append(row)
     for g in nfl.get("games", []):
         ko = nfl_kickoff(g)
@@ -348,7 +403,7 @@ def run(a):
         if k not in picks:
             if sum(p["sport"] == "nhl" and p.get("day") == day for p in picks.values()) >= NHL_PROPS_PER_DAY: continue
             if any(p["sport"] == "nhl" and p.get("id") == r["id"] and str(p["game"]) == str(g["id"]) for p in picks.values()): continue
-        picks[k] = {"sport": "nhl", "type": "prop", "game": g["id"], "day": day, "away": g["away"], "home": g["home"], **{x: r[x] for x in ("name", "id", "team", "opp", "stat", "line", "side", "odds", "proj", "chance", "model", "mkt")},
+        picks[k] = {"sport": "nhl", "type": "prop", "game": g["id"], "day": day, "away": g["away"], "home": g["home"], **{x: r[x] for x in ("name", "id", "team", "opp", "stat", "line", "side", "odds", "proj", "raw", "chance", "model", "mkt")}, "v": MODEL_V,
                     "kickoff": g["start"], "logged": iso(t_now), "result": None}
 
     starts = {str(g["id"]): g for g in nba_games}
@@ -362,7 +417,7 @@ def run(a):
             if any(p["sport"] == "nba" and p.get("type") == "prop" and p.get("id") == r["id"] and str(p["game"]) == str(g["id"]) for p in picks.values()): continue  # one stat per player
         picks[k] = {"sport": "nba", "type": "prop", "game": g["id"], "day": day, "away": g["away"], "home": g["home"], "name": r["name"], "id": r["id"],
                     "team": r["team"], "opp": r["opp"], "stat": r["stat"], "line": r["line"], "side": r["side"], "odds": r["odds"], "proj": r["proj"],
-                    "chance": r["chance"], "model": r["model"], "mkt": r["mkt"], "kickoff": g["start"], "logged": iso(t_now), "result": None}
+                    "raw": r["raw"], "chance": r["chance"], "v": MODEL_V, "model": r["model"], "mkt": r["mkt"], "kickoff": g["start"], "logged": iso(t_now), "result": None}
 
     for k, p in picks.items():
         if p.get("result") is None and "line" in p and p["sport"] in ("nfl", "nba", "nhl"):
@@ -606,7 +661,7 @@ def run(a):
              "cbbGames": [{x: g.get(x) for x in ("id", "start", "day", "state", "detail", "neutral", "home", "away", "scoreH", "scoreA", "odds", "pH", "tv", "leans")} for g in cbb.get("games", []) if g["home"].get("rank") or g["away"].get("rank") or g.get("leans")],
              "cbbReady": cbb.get("ready"),
              "nbaPicks": sorted([{**p, "img": imgs.get(p["id"], "")} for p in picks.values() if p["sport"] == "nba" and p.get("type") == "prop" and (p.get("result") is None or p.get("day") == t_now.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d"))], key=lambda p: p["kickoff"])[:24], "nbaInjuries": nba_inj_now[:10], "injuryNews": {"nfl": nfl_inj, "nba": nba_inj},
-             "track": track, "results": res, "credits": (nfl.get("odds") or {}).get("remaining")}
+             "track": track, "results": res, "credits": (nfl.get("odds") or {}).get("remaining"), "calib": CAL}
     json.dump(today, open(a.out, "w"), separators=(",", ":"))
     print(f"today: {len(nfl_top)} NFL picks, {len(nba_day_games)} NBA games, {len(nba_top)} NBA props; track NFL {track['nfl']['w']}-{track['nfl']['l']} "
           f"({track['nfl']['pending']} pending), NBA ATS {track['nba']['spread']['w']}-{track['nba']['spread']['l']}, totals {track['nba']['total']['w']}-{track['nba']['total']['l']}")
