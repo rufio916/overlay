@@ -168,6 +168,14 @@ def nfl_price(p, pr, idx):
     return {"line": line, "fair": psum / wsum, "n": n}
 
 
+def wx_shift(g, stat):
+    """Shade the over chance for bad kickoff weather (mirrors wxShift on the NFL page)."""
+    w = g.get("wx") or {}
+    if not w or g.get("roof") in ("dome", "closed"): return 0.0
+    s = min(1.0, max(0, (w.get("wind", 0) - 12) / 12) + max(0, (w.get("gust", 0) - 28) / 40) + (.4 if w.get("snow") else 0) + (.25 if w.get("rain", 0) >= 70 else 0))
+    return -.04 * s if stat in ("Pass Yds", "Rec Yds", "Receptions") else .02 * s if stat in ("Rush Yds", "Rush Att") else 0.0
+
+
 def nfl_kickoff(g):
     return datetime.strptime(f"{g['day']} {g['time']}", "%Y-%m-%d %H:%M").replace(tzinfo=ET)
 
@@ -349,7 +357,8 @@ def run(a):
             row = {"sport": "nfl", "name": p["name"], "team": p["team"], "opp": p["opp"], "pos": p["pos"], "stat": pr["stat"], "proj": pr["proj"],
                    "avg": pr["avg"], "game": g["id"], "week": nfl.get("week"), "kickoff": iso(ko), "img": p.get("img", ""), "status": p.get("status", "")}
             if pc and pc["fair"] is not None and pc["n"] >= 2:
-                side = "More" if pc["fair"] >= .5 else "Less"; ch = max(pc["fair"], 1 - pc["fair"])
+                fair = min(.99, max(.01, pc["fair"] + wx_shift(g, pr["stat"])))
+                side = "More" if fair >= .5 else "Less"; ch = max(fair, 1 - fair)
                 row.update({"line": pc["line"], "side": side, "raw": round(ch, 4), "chance": cal("nfl", ch, side), "books": pc["n"]})
                 if row["chance"] >= PICK_MIN and ko > t_now and fetched and p.get("status") not in ("Out", "Doubtful"):
                     k = f"nfl|{nfl['week']}|{norm(p['name'])}|{pr['stat']}"

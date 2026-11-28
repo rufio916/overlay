@@ -73,6 +73,7 @@ html{scroll-behavior:smooth}
 .quick{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 18px}
 .quick a{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 14px;text-decoration:none}
 .quick a:hover{border-color:var(--accent)}
+.wxalert{border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:8px;padding:8px 12px;margin:8px 0 12px;font-size:14px;display:flex;flex-direction:column;gap:2px}.wxalert>b{color:var(--warn);font-size:12px;letter-spacing:.06em;text-transform:uppercase}
 </style>
 <header class="top">
   <div class="topin">
@@ -151,6 +152,10 @@ function evList(){const L=(D.nflEv||[]);if(!L.length)return "";
 // ---------- Overlay's NFL prop picks (tracked) ----------
 (function(){const G=(D.nflPicks||[]).filter(g=>g.picks.length||(g.close||[]).length);let h=`<h3>Overlay's NFL prop picks <span class="sub">The 3 best-rated props in each game · Week ${D.nflWeek} · tracked in the record</span></h3>`;
   const days=[...new Set(G.map(g=>dayPT(g.kickoff)))].sort();const dd=days.includes(todayPT)?todayPT:days.find(d=>d>todayPT);const S=G.filter(g=>dayPT(g.kickoff)===dd);
+  // weather alerts for every outdoor game on the next NFL day, whether or not it has picks
+  const wxd=[...new Set((D.nflPicks||[]).map(g=>dayPT(g.kickoff)))].sort().find(d=>d>=todayPT);
+  const W=(D.nflPicks||[]).filter(g=>g.wx&&dayPT(g.kickoff)===wxd);
+  if(W.length)h+=`<div class="wxalert"><b>☂ Weather to watch</b>${W.map(g=>`<div>${g.away} @ ${g.home}: ${esc(g.wx)}</div>`).join("")}<div class="sub">Wind, heavy rain and snow cut passing and help unders and rushing. Passing and receiving overs in these games are marked down.</div></div>`;
   if(!S.length){h+=`<p class="sub">${D.nflLinesAt?"No props cleared the 54% break-even for the next games yet.":"Picks show up after the Thursday and Sunday morning line pulls."} <a href="nfl.html?tab=match" style="color:var(--accent)">All NFL props ›</a></p>`+evList();$("#nflpicks").innerHTML=h;return;}
   const label=dd===todayPT?"Today":new Date(dd+"T12:00").toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"});
   h+=`<div class="dayhead">${label} · ${S.length} game${S.length>1?"s":""}</div>`;
@@ -319,7 +324,8 @@ const rec2=s=>s&&s.n?`${s.w}-${s.l}`:"0-0";
 function summaryFor(id){const T=D.track||{};
   if(id==="nflpicks"){const G=(D.nflPicks||[]).filter(g=>g.picks.length||(g.close||[]).length);const days=[...new Set(G.map(g=>dayPT(g.kickoff)))].sort();const dd=days.includes(todayPT)?todayPT:days.find(d=>d>todayPT);
     const S=G.filter(g=>dayPT(g.kickoff)===dd);const n=S.reduce((a,g)=>a+g.picks.length,0);const wk=(T.nfl&&T.nfl.top&&T.nfl.top.byWeek||{})[D.nflWeek];
-    const evn=(D.nflEv||[]).filter(x=>!x.result).length,evt=evn?` · <b>${evn} sportsbook edge${evn>1?"s":""}</b>`:"";
+    const wxd=[...new Set((D.nflPicks||[]).map(g=>dayPT(g.kickoff)))].sort().find(d=>d>=todayPT),wxn=(D.nflPicks||[]).filter(g=>g.wx&&dayPT(g.kickoff)===wxd).length;
+    const evn=(D.nflEv||[]).filter(x=>!x.result).length,evt=(evn?` · <b>${evn} sportsbook edge${evn>1?"s":""}</b>`:"")+(wxn?` · <b style="color:var(--warn)">☂ weather in ${wxn} game${wxn>1?"s":""}</b>`:"");
     if(!S.length)return (D.nflLinesAt?"No props above 54% for the next games":"Picks arrive with the Thursday and Sunday line pulls")+evt;
     return `<b>${n} pick${n!==1?"s":""}</b> ${dd===todayPT?"today":"for "+new Date(dd+"T12:00").toLocaleDateString("en-US",{weekday:"long"})} · ${S.length} game${S.length>1?"s":""}${wk&&wk.n?` · Week ${D.nflWeek} so far ${wk.w}-${wk.l}`:""}${evt}`;}
   if(id==="nbapicks"){const A=D.nbaPicks||[];const t=A.filter(x=>x.day===todayPT);const y=((T.recent||{}).nbaProps||[]).filter(x=>x.day&&x.day<todayPT);const yd=y.length?y[0].day:null;const yy=y.filter(x=>x.day===yd);
